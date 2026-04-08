@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "macro-quant": {
+      "command": "python",
+      "args": ["macro_quant/main.py", "--serve"],
+      "env": {
+        "FRED_API_KEY": "${FRED_API_KEY}"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  }
+}

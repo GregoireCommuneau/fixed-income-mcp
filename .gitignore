@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# Generated charts (re-created by MCP server)
+macro_quant/charts/*.png
+
+# Coverage
+.coverage
+htmlcov/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/

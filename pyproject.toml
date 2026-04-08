@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macro-quant"
+version = "0.1.0"
+description = "Macro & fixed income analysis system with MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5.0",
+    "yfinance>=0.2.36",
+    "fredapi>=0.5.1",
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "scipy>=1.11.0",
+    "matplotlib>=3.8.0",
+    "mcp>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["macro_quant*"]
