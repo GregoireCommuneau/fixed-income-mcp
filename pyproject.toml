@@ -18,6 +18,17 @@ dependencies = [
     "mcp>=1.0.0",
 ]
 
+# Development dependencies: tools needed to develop and test the project,
+# NOT required to run it. Install with:  pip install -e ".[dev]"
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",        # test runner
+    "pytest-cov>=5.0",    # test coverage reporting
+    "ruff>=0.6",          # linter + formatter (Étape 2)
+    "mypy>=1.11",         # static type checker (Étape 3)
+    "hypothesis>=6.100",  # property-based testing
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["macro_quant*"]
