@@ -15,6 +15,7 @@ Upgrades over standard textbook:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -348,7 +349,7 @@ class RiskEngine:
         scenarios: dict[str, float] | None = None,
     ) -> dict[str, dict[str, float]]:
         """Predefined stress tests (rate-only, legacy interface)."""
-        default_scenarios = {
+        default_scenarios: dict[str, float] = {
             "Fed hike +25bp":     25,
             "Fed hike +50bp":     50,
             "Taper tantrum +100bp": 100,
@@ -459,7 +460,7 @@ class RiskEngine:
         curve_history: pd.DataFrame,
         n_components: int = 3,
         n_std: float = 2.0,
-    ) -> dict[str, dict[str, float]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         PCA decomposition of yield curve changes into level/slope/curvature.
 

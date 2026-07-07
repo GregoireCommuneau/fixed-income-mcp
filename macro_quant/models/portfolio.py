@@ -269,7 +269,9 @@ class Portfolio(BaseModel):
 
     # ── Iteration ──
 
-    def __iter__(self) -> Iterator[Position]:
+    # Override volontaire de BaseModel.__iter__ : on veut que `for pos in portfolio`
+    # itère sur les positions (sûr avec pydantic v2, qui sérialise via model_dump).
+    def __iter__(self) -> Iterator[Position]:  # type: ignore[override]
         return iter(self.positions.values())
 
     def __len__(self) -> int:

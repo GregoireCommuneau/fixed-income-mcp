@@ -121,10 +121,10 @@ def run_demo(mock: bool = False) -> None:
         for ticker, pos in portfolio.positions.items():
             mv = pos.market_value
             pos_data[ticker] = {
-                "weight": mv / metrics_port.total_market_value if metrics_port.total_market_value else 0,
+                "weight": mv / metrics_port.total_market_value if (mv is not None and metrics_port.total_market_value) else 0,
                 "market_value": mv,
                 "unrealized_pnl": pos.unrealized_pnl,
-                "unrealized_pnl_pct": pos.unrealized_pnl / (pos.avg_cost * pos.quantity) if pos.avg_cost else 0,
+                "unrealized_pnl_pct": pos.unrealized_pnl / (pos.avg_cost * pos.quantity) if (pos.unrealized_pnl is not None and pos.avg_cost) else 0,
             }
         chart_path = chart_portfolio_allocation(pos_data, metrics_port.total_market_value or 0)
         print(f"\n  [CHART] Portfolio allocation saved to:\n  {chart_path}")

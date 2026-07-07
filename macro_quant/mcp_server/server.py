@@ -203,7 +203,7 @@ class MacroQuantMCPServer:
         Returns: CPI, PCE, NFP, Fed rate, credit spreads, breakeven inflation...
         """
         dashboard = self._fred.get_macro_dashboard()
-        result = {
+        result: dict[str, Any] = {
             key: {
                 "value": ind.value,
                 "unit": ind.unit,

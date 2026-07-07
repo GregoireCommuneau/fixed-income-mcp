@@ -55,3 +55,26 @@ ignore = [
     # avec des tests dédiés.
     "UP042",
 ]
+
+# ── Mypy: vérificateur de types statique ──
+[tool.mypy]
+# 3.12 = version de l'interpréteur de dév (les stubs numpy récents exigent 3.12).
+# Le projet reste compatible >=3.11 (voir requires-python), mais on type-check
+# sur la version qu'on exécute réellement.
+python_version = "3.12"
+files = ["macro_quant"]
+# Plugin pydantic : améliore l'inférence de types sur les modèles pydantic.
+plugins = ["pydantic.mypy"]
+# prop-decorator : limitation connue de mypy avec le pattern pydantic
+# @computed_field au-dessus de @property (obligatoire pour pydantic).
+# Le code est correct ; on désactive ce faux positif spécifique.
+disable_error_code = ["prop-decorator"]
+# Beaucoup de librairies data (yfinance, fredapi, matplotlib) n'ont pas de
+# "type stubs" complets : on ignore leurs types manquants pour se concentrer
+# sur NOTRE code, pas sur celui des dépendances.
+ignore_missing_imports = true
+# Niveau de départ : souple. On vérifie même les fonctions non annotées,
+# et on signale les annotations inutiles. On durcira ensuite.
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true

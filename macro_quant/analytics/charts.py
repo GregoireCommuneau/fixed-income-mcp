@@ -344,7 +344,7 @@ def chart_portfolio_allocation(
     ax2.set_xlim(x_min * 1.1 if x_min < 0 else x_min, x_max * 1.6)
 
     fig.suptitle("Portfolio Overview", fontsize=14, fontweight="bold", color=COLORS["text"], y=1.0)
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     return _save(fig, "portfolio_allocation")
 
 
@@ -577,7 +577,9 @@ def chart_correlation_matrix(
     # Colorbar
     cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
     cbar.ax.tick_params(colors=COLORS["text"], labelsize=8)
-    cbar.outline.set_edgecolor(COLORS["grid"])
+    if cbar.outline is not None:
+        # Faux positif des stubs matplotlib sur Spine.set_edgecolor (méthode valide).
+        cbar.outline.set_edgecolor(COLORS["grid"])  # type: ignore[operator]
 
     ax.set_title(f"Return Correlation Matrix  ({period_days}d)", fontsize=13, fontweight="bold", pad=15)
 

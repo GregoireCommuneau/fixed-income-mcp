@@ -235,6 +235,7 @@ class TestDayCountConventions:
         )
         assert bond.accrued_interest >= 0
         assert bond.dirty_price is not None
+        assert bond.price is not None
         assert bond.dirty_price >= bond.price
 
 

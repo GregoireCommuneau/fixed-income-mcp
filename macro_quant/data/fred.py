@@ -190,7 +190,7 @@ class FREDDataFeed(DataFeed):
                     yoy = (float(current) - value_12m_ago) / value_12m_ago * 100
                     value = round(yoy, 2)
                     # Also compute the previous month's YoY
-                    if len(series) >= 2:
+                    if len(series) >= 2 and previous is not None:
                         prev_date = series.index[-2]
                         target_prev = prev_date - pd.DateOffset(months=12)
                         past_prev = series[series.index <= target_prev]
@@ -203,11 +203,11 @@ class FREDDataFeed(DataFeed):
             # OAS series: convert from percentage points to basis points
             if series_id in _OAS_SERIES_IDS:
                 value = round(value * 100, 1)
-                if prev_value is not None:
+                if previous is not None:
                     prev_value = round(float(previous) * 100, 1)
 
             # Level series (NFP, MFG employment): show month-over-month change
-            if series_id in _DELTA_SERIES_IDS and prev_value is not None:
+            if series_id in _DELTA_SERIES_IDS and previous is not None:
                 delta = float(current) - float(previous)
                 # Previous delta: need 3rd data point
                 prev_delta = None
