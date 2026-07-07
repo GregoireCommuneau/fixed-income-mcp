@@ -229,6 +229,23 @@ python macro_quant/main.py --serve
 
 Once connected, Claude Code can use all 10 tools directly in conversation.
 
+### Docker
+
+The project ships with a multi-stage `Dockerfile` (non-root runtime user):
+
+```bash
+# Build the image
+docker build -t macroquant .
+
+# Run the console demo (no API key needed)
+docker run --rm macroquant python -m macro_quant.main --demo --mock
+
+# Run the MCP server (pass your FRED key at runtime)
+docker run --rm -i -e FRED_API_KEY=xxxx macroquant
+```
+
+The secret is injected at runtime via `-e` and never baked into the image.
+
 ---
 
 ## MCP Tools Reference

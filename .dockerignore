@@ -1,0 +1,33 @@
+# Secrets — NEVER bake into the image
+.env
+*.env
+
+# Virtual environments (rebuilt inside the image)
+.venv/
+venv/
+
+# Version control & CI
+.git/
+.github/
+
+# Python caches / build artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+build/
+dist/
+
+# Generated charts (created at runtime)
+macro_quant/charts/*.png
+
+# Editor / local
+.claude/
+.vscode/
+.idea/
+
+# Personal planning docs
+DURCISSEMENT.md
