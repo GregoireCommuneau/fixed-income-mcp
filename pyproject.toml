@@ -24,8 +24,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",        # test runner
     "pytest-cov>=5.0",    # test coverage reporting
-    "ruff>=0.6",          # linter + formatter (Étape 2)
-    "mypy>=1.11",         # static type checker (Étape 3)
+    "ruff>=0.6",          # linter + formatter
+    "mypy>=1.11",         # static type checker
     "hypothesis>=6.100",  # property-based testing
 ]
 
@@ -33,48 +33,47 @@ dev = [
 where = ["."]
 include = ["macro_quant*"]
 
-# ── Ruff: linter + formateur ──
+# Ruff: linter + formatter
 [tool.ruff]
 line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-# Familles de règles activées :
-#   E/W = style (pycodestyle) · F = erreurs réelles (pyflakes, ex: import inutilisé)
-#   I   = tri des imports (isort) · UP = modernisation de syntaxe (pyupgrade)
-#   B   = pièges courants (flake8-bugbear)
+# Enabled rule families:
+#   E/W = style (pycodestyle), F = real errors (pyflakes, e.g. unused import)
+#   I   = import sorting (isort), UP = syntax modernization (pyupgrade)
+#   B   = common pitfalls (flake8-bugbear)
 select = ["E", "W", "F", "I", "UP", "B"]
 ignore = [
-    # Longueur de ligne guidée à 120 mais non imposée : le code contient des
-    # tables de données de référence alignées en colonnes (data/yahoo.py,
-    # MACRO_SCENARIOS dans risk.py) plus lisibles sur une ligne, et on ne
-    # lance pas le formateur automatique.
+    # Line length guided at 120 but not enforced: the code contains aligned
+    # reference-data tables (data/yahoo.py, MACRO_SCENARIOS in risk.py) that
+    # read better on a single line, and we do not run the autoformatter.
     "E501",
-    # str+Enum -> StrEnum : reporté. La conversion changerait la valeur de
-    # str(member), utilisée dans les describe()/sérialisations ; à revoir
-    # avec des tests dédiés.
+    # str+Enum -> StrEnum: deferred. The conversion would change the value of
+    # str(member), used in describe()/serialization; revisit with dedicated
+    # tests.
     "UP042",
 ]
 
-# ── Mypy: vérificateur de types statique ──
+# Mypy: static type checker
 [tool.mypy]
-# 3.12 = version de l'interpréteur de dév (les stubs numpy récents exigent 3.12).
-# Le projet reste compatible >=3.11 (voir requires-python), mais on type-check
-# sur la version qu'on exécute réellement.
+# 3.12 = the dev interpreter version (recent numpy stubs require 3.12).
+# The project stays compatible with >=3.11 (see requires-python), but we
+# type-check against the version we actually run.
 python_version = "3.12"
 files = ["macro_quant"]
-# Plugin pydantic : améliore l'inférence de types sur les modèles pydantic.
+# Pydantic plugin: improves type inference on pydantic models.
 plugins = ["pydantic.mypy"]
-# prop-decorator : limitation connue de mypy avec le pattern pydantic
-# @computed_field au-dessus de @property (obligatoire pour pydantic).
-# Le code est correct ; on désactive ce faux positif spécifique.
+# prop-decorator: a known mypy limitation with the pydantic pattern
+# @computed_field on top of @property (required by pydantic). The code is
+# correct, so we disable this specific false positive.
 disable_error_code = ["prop-decorator"]
-# Beaucoup de librairies data (yfinance, fredapi, matplotlib) n'ont pas de
-# "type stubs" complets : on ignore leurs types manquants pour se concentrer
-# sur NOTRE code, pas sur celui des dépendances.
+# Many data libraries (yfinance, fredapi, matplotlib) ship incomplete type
+# stubs: we ignore their missing types to focus on our own code, not the
+# dependencies'.
 ignore_missing_imports = true
-# Niveau de départ : souple. On vérifie même les fonctions non annotées,
-# et on signale les annotations inutiles. On durcira ensuite.
+# Starting level: lenient. We still check un-annotated functions and flag
+# useless casts/ignores. Can be tightened later.
 check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true

@@ -99,9 +99,9 @@ class TestVaR:
         # Create negatively skewed returns (fat left tail)
         normal = np.random.normal(0.0005, 0.01, 500)
         crashes = np.random.normal(-0.05, 0.02, 20)
-        # permutation() renvoie une COPIE mélangée (ne modifie pas l'original),
-        # contrairement à shuffle() qui écrit sur place et échoue sur un tableau
-        # en lecture seule (numpy >= 2 / pandas >= 3).
+        # permutation() returns a shuffled COPY (does not modify the original),
+        # unlike shuffle() which writes in place and fails on a read-only
+        # array (numpy >= 2 / pandas >= 3).
         shuffled = np.random.permutation(np.concatenate([normal, crashes]))
         returns = pd.Series(shuffled)
 
