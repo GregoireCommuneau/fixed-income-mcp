@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from datetime import date
@@ -264,6 +265,14 @@ def run_server() -> None:
 
 
 if __name__ == "__main__":
+    # Configure logging once, at the application entry point (libraries only emit).
+    # Logs go to stderr, keeping stdout clean for the MCP protocol in --serve mode.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
     parser = argparse.ArgumentParser(description="MacroQuant System")
     parser.add_argument("--serve", action="store_true", help="Start MCP server")
     parser.add_argument("--demo",  action="store_true", help="Run demo in console")

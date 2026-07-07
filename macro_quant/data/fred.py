@@ -9,6 +9,7 @@ automatically converted to YoY% change in get_macro_indicator().
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date
 from typing import Any
@@ -17,6 +18,8 @@ import pandas as pd
 
 from macro_quant.data.base import DataFeed
 from macro_quant.models.yield_curve import MacroIndicator, YieldCurve, YieldPoint
+
+logger = logging.getLogger(__name__)
 
 # Mapping tenor → FRED series ID (US Treasury rates)
 TREASURY_SERIES: dict[str, tuple[str, float]] = {
@@ -119,8 +122,9 @@ class FREDDataFeed(DataFeed):
                     rate=value / 100,  # FRED gives %, we convert to decimal
                     fred_series=series_id,
                 )
-            except Exception:
-                continue  # Skip unavailable tenors
+            except Exception as e:
+                logger.debug("Skipping unavailable tenor %s: %s", tenor, e)
+                continue
 
         curve_date = as_of or date.today()
         return YieldCurve(points=points, as_of=curve_date, source="FRED")
@@ -225,7 +229,7 @@ class FREDDataFeed(DataFeed):
                 previous=prev_value,
             )
         except Exception as e:
-            print(f"[FRED] Error fetching {series_id}: {e}")
+            logger.warning("Error fetching %s: %s", series_id, e)
             return None
 
     # ── Full macro dashboard ──

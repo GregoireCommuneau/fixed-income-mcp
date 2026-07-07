@@ -5,6 +5,7 @@ YahooDataFeed — yfinance connector for prices, ETFs, and historical data.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 import numpy as np
@@ -13,6 +14,8 @@ import pandas as pd
 from macro_quant.data.base import DataFeed
 from macro_quant.models.instruments import BondETF
 from macro_quant.models.yield_curve import MacroIndicator, YieldCurve
+
+logger = logging.getLogger(__name__)
 
 # Reference bond ETFs with their characteristics
 # risk_category: treasury | ig | hy | em | tips
@@ -58,7 +61,8 @@ class YahooDataFeed(DataFeed):
         try:
             info = self._ticker(ticker).fast_info
             return float(info.last_price)
-        except Exception:
+        except Exception as e:
+            logger.debug("No price for %s: %s", ticker, e)
             return None
 
     def get_prices(self, tickers: list[str]) -> dict[str, float | None]:
@@ -70,10 +74,12 @@ class YahooDataFeed(DataFeed):
             for t in tickers:
                 try:
                     prices[t] = float(data["Close"][t].iloc[-1])
-                except Exception:
+                except Exception as e:
+                    logger.debug("No close price for %s: %s", t, e)
                     prices[t] = None
             return prices
-        except Exception:
+        except Exception as e:
+            logger.warning("Bulk download failed, falling back to per-ticker: %s", e)
             return {t: self.get_price(t) for t in tickers}
 
     # ── History ──
@@ -175,7 +181,7 @@ class YahooDataFeed(DataFeed):
 
             return etf.model_copy(update=updates)
         except Exception as e:
-            print(f"[Yahoo] Error enriching {etf.ticker}: {e}")
+            logger.warning("Error enriching %s: %s", etf.ticker, e)
             return etf
 
     def get_bond_etf_universe(self) -> list[BondETF]:
@@ -205,7 +211,8 @@ class YahooDataFeed(DataFeed):
                 ytm = info.get("yield") or info.get("thirtyDayYield")
                 if ytm:
                     rates[tenor] = float(ytm)
-            except Exception:
+            except Exception as e:
+                logger.debug("No proxy yield for %s (%s): %s", tenor, etf_ticker, e)
                 continue
 
         return YieldCurve.from_dict(rates, source="Yahoo (proxy)")

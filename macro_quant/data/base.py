@@ -6,6 +6,7 @@ Defines the contract that FRED, Yahoo, LSEG, etc. must respect.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import date
 
@@ -13,6 +14,8 @@ import pandas as pd
 
 from macro_quant.models.instruments import BondETF
 from macro_quant.models.yield_curve import MacroIndicator, YieldCurve
+
+logger = logging.getLogger(__name__)
 
 
 class DataFeed(ABC):
@@ -89,7 +92,8 @@ class DataFeed(ABC):
         try:
             self.get_price("TLT")
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug("Ping failed for %s: %s", self.source_name, e)
             return False
 
     def __repr__(self) -> str:

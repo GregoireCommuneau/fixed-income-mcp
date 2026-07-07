@@ -21,6 +21,7 @@ path of the PNG generated in the project's charts/ folder.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import date, timedelta
 from pathlib import Path
@@ -47,6 +48,8 @@ from macro_quant.models.alerts import (
 )
 from macro_quant.models.instruments import Bond, BondETF, CouponFrequency
 from macro_quant.models.portfolio import Portfolio, Position
+
+logger = logging.getLogger(__name__)
 
 
 class MacroQuantMCPServer:
@@ -138,7 +141,7 @@ class MacroQuantMCPServer:
                 data = json.loads(self._portfolio_path.read_text())
                 return Portfolio.model_validate(data)
         except Exception as e:
-            print(f"[Portfolio] Failed to load from disk: {e}", flush=True)
+            logger.warning("Failed to load portfolio from disk, using empty: %s", e)
         return Portfolio(name="Main Portfolio")
 
     def _save_portfolio(self) -> None:
@@ -148,7 +151,7 @@ class MacroQuantMCPServer:
                 self._portfolio.model_dump_json(indent=2)
             )
         except Exception as e:
-            print(f"[Portfolio] Failed to save to disk: {e}", flush=True)
+            logger.error("Failed to save portfolio to disk: %s", e)
 
     # ──────────────────────────────────────────
     # Exposed MCP tools
@@ -180,7 +183,8 @@ class MacroQuantMCPServer:
                             tenor: round(p.rate * 100, 3)
                             for tenor, p in hist_curve.points.items()
                         }
-                except Exception:
+                except Exception as e:
+                    logger.debug("Skipping historical curve %s: %s", label, e)
                     continue
             if not historical:
                 historical = None
@@ -449,8 +453,8 @@ class MacroQuantMCPServer:
             r10 = curve.rate("10Y")
             if r10:
                 data["DGS10"] = r10 * 100  # in %
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not fetch yield curve for alerts: %s", e)
 
         # Credit spreads
         for key in ["HY_OAS", "IG_OAS", "BREAKEVEN_10Y"]:
@@ -460,7 +464,8 @@ class MacroQuantMCPServer:
                 ind = self._fred.get_macro_indicator(series_id)
                 if ind:
                     data[key] = ind.value
-            except Exception:
+            except Exception as e:
+                logger.debug("Could not fetch %s: %s", key, e)
                 continue
 
         # Evaluation

@@ -16,6 +16,7 @@ Architecture:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -24,6 +25,8 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
 # Enums
@@ -332,7 +335,7 @@ class AlertManager:
                 try:
                     handler(result)
                 except Exception as e:
-                    print(f"[AlertManager] Handler error: {e}")
+                    logger.error("Handler error for alert %s: %s", result.alert_name, e)
 
     # ── Evaluation ──
 
