@@ -18,12 +18,12 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ──────────────────────────────────────────────
 # Enums
@@ -366,7 +366,7 @@ class AlertManager:
 
     def summary(self) -> str:
         lines = [
-            f"── AlertManager ──",
+            "── AlertManager ──",
             f"Total alerts : {len(self._alerts)}",
             f"Active       : {len(self.active_alerts())}",
             f"Total fired  : {len(self.triggered_history(1000))}",

@@ -2,11 +2,10 @@
 Tests for Portfolio — positions, metrics, DV01 computation.
 """
 
-from datetime import date, timedelta
 
 import pytest
 
-from macro_quant.models.instruments import Bond, BondETF, CouponFrequency
+from macro_quant.models.instruments import BondETF
 from macro_quant.models.portfolio import Portfolio, Position
 
 

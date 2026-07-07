@@ -7,12 +7,11 @@ Defines the contract that FRED, Yahoo, LSEG, etc. must respect.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
-from typing import Any
+from datetime import date
 
 import pandas as pd
 
-from macro_quant.models.instruments import Bond, BondETF
+from macro_quant.models.instruments import BondETF
 from macro_quant.models.yield_curve import MacroIndicator, YieldCurve
 
 

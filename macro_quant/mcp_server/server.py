@@ -27,19 +27,26 @@ from pathlib import Path
 from typing import Any
 
 from macro_quant.analytics.charts import (
-    chart_yield_curve, chart_stress_test, chart_portfolio_allocation,
-    chart_spread_history, chart_macro_dashboard, chart_correlation_matrix,
+    chart_correlation_matrix,
+    chart_macro_dashboard,
+    chart_portfolio_allocation,
+    chart_spread_history,
+    chart_stress_test,
+    chart_yield_curve,
 )
 from macro_quant.analytics.fixed_income import FixedIncomeEngine, YieldCurveAnalytics
-from macro_quant.analytics.risk import RiskEngine, PositionRisk
+from macro_quant.analytics.risk import PositionRisk, RiskEngine
 from macro_quant.data.fred import FREDDataFeed
-from macro_quant.data.yahoo import YahooDataFeed, BOND_ETF_UNIVERSE
+from macro_quant.data.yahoo import BOND_ETF_UNIVERSE, YahooDataFeed
 from macro_quant.models.alerts import (
-    Alert, AlertManager, AlertSeverity, ComparisonOp, ThresholdCondition, CrossoverCondition
+    Alert,
+    AlertManager,
+    AlertSeverity,
+    ComparisonOp,
+    ThresholdCondition,
 )
-from macro_quant.models.instruments import Bond, BondETF, CouponFrequency, Currency
+from macro_quant.models.instruments import Bond, BondETF, CouponFrequency
 from macro_quant.models.portfolio import Portfolio, Position
-from macro_quant.models.yield_curve import YieldCurve
 
 
 class MacroQuantMCPServer:
@@ -385,7 +392,6 @@ class MacroQuantMCPServer:
             mv = pos.market_value or 0
             meta = BOND_ETF_UNIVERSE.get(ticker, {})
             category = meta.get("risk_category", "treasury")
-            spread_dur = meta.get("spread_duration", 0.0)
             cvx = meta.get("convexity", 0.0)
             positions_risk.append(PositionRisk(
                 ticker=ticker,
@@ -568,10 +574,11 @@ class MacroQuantMCPServer:
     def run(self) -> None:
         """Launches the MCP server via stdio (for Claude Code)."""
         try:
-            from mcp.server.stdio import stdio_server
-            from mcp.server import Server
-            from mcp.types import Tool, TextContent
             import asyncio
+
+            from mcp.server import Server
+            from mcp.server.stdio import stdio_server
+            from mcp.types import TextContent, Tool
 
             server = Server("macro-quant")
             mq = self  # reference for handlers
@@ -718,4 +725,4 @@ class MacroQuantMCPServer:
             asyncio.run(main())
 
         except ImportError:
-            raise ImportError("pip install mcp")
+            raise ImportError("pip install mcp") from None

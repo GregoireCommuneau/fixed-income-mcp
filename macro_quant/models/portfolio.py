@@ -5,13 +5,12 @@ Position, Portfolio, PortfolioMetrics — bond portfolio management.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Iterator
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from macro_quant.models.instruments import Bond, BondETF, BondFuture, Instrument
-
+from macro_quant.models.instruments import Bond, BondETF, BondFuture
 
 # ──────────────────────────────────────────────
 # Position
@@ -294,7 +293,7 @@ class Portfolio(BaseModel):
     def describe(self) -> str:
         metrics = self.compute_metrics()
         lines = [f"═══ PORTFOLIO: {self.name} ═══", ""]
-        for ticker, pos in self.positions.items():
+        for _ticker, pos in self.positions.items():
             lines.append(f"  • {pos.describe()}")
         lines.append("")
         lines.append(metrics.describe())

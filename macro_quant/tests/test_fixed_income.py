@@ -9,7 +9,8 @@ from datetime import date, timedelta
 import pytest
 
 from macro_quant.analytics.fixed_income import (
-    FixedIncomeEngine, BondMetrics, YieldCurveAnalytics,
+    FixedIncomeEngine,
+    YieldCurveAnalytics,
 )
 from macro_quant.models.instruments import Bond, CouponFrequency, DayCountConvention
 

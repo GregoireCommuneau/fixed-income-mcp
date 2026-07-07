@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from macro_quant.analytics.risk import RiskEngine, PositionRisk, MACRO_SCENARIOS
+from macro_quant.analytics.risk import MACRO_SCENARIOS, PositionRisk, RiskEngine
 
 
 @pytest.fixture
@@ -253,7 +253,6 @@ class TestPCAScenarios:
     def test_pca_with_synthetic_data(self, engine):
         """PCA should decompose curve changes into level/slope/curvature."""
         np.random.seed(42)
-        tenors = ["2Y", "5Y", "10Y", "30Y"]
         n_days = 252
         # Synthetic: mostly parallel shifts + some steepening
         level = np.random.normal(0, 0.02, n_days)

@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date
 
 # Add the parent directory to path so that "macro_quant" can be found
 # regardless of where the script is launched from
@@ -203,8 +203,11 @@ def run_demo(mock: bool = False) -> None:
         "  Below we simulate two scenarios with mock data to show how they work.")
 
     from macro_quant.models.alerts import (
-        Alert, AlertManager, AlertSeverity,
-        ThresholdCondition, ComparisonOp
+        Alert,
+        AlertManager,
+        AlertSeverity,
+        ComparisonOp,
+        ThresholdCondition,
     )
 
     manager = AlertManager()

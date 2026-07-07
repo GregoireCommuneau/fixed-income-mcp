@@ -8,12 +8,11 @@ Images are stored in the charts/ folder of the project.
 
 from __future__ import annotations
 
-import os
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 import matplotlib
+
 matplotlib.use("Agg")  # Non-interactive backend
 
 import matplotlib.pyplot as plt
@@ -94,9 +93,9 @@ def chart_yield_curve(
         for i, (label, hist_rates) in enumerate(historical.items()):
             hist_values = [hist_rates.get(t) for t in tenors]
             # Skip tenors with missing data
-            valid = [(xi, v) for xi, v in zip(x, hist_values) if v is not None]
+            valid = [(xi, v) for xi, v in zip(x, hist_values, strict=True) if v is not None]
             if valid:
-                hx, hv = zip(*valid)
+                hx, hv = zip(*valid, strict=True)
                 color = hist_colors[i % len(hist_colors)]
                 ax.plot(hx, hv, color=color, linewidth=1.5, linestyle="--",
                         marker="s", markersize=4, alpha=0.7, label=label, zorder=3)
@@ -106,7 +105,7 @@ def chart_yield_curve(
     ax.fill_between(x, values, alpha=0.15, color=COLORS["accent"])
 
     # Annotations on each point (current only)
-    for i, (tenor, val) in enumerate(zip(tenors, values)):
+    for i, (_tenor, val) in enumerate(zip(tenors, values, strict=True)):
         ax.annotate(
             f"{val:.2f}%",
             (i, val),
@@ -193,7 +192,7 @@ def chart_stress_test(scenarios: dict[str, dict[str, Any]], portfolio_dv01: floa
 
         # Total label on top of each group
         total_offset = offsets[-1]
-        for i, (pnl, pct) in enumerate(zip(pnls, pcts)):
+        for i, (pnl, pct) in enumerate(zip(pnls, pcts, strict=True)):
             sign = "+" if pnl >= 0 else ""
             y_pos = pnl + (800 if pnl >= 0 else -800)
             ax.text(
@@ -256,7 +255,7 @@ def chart_stress_test(scenarios: dict[str, dict[str, Any]], portfolio_dv01: floa
         ax.axhline(y=0, color=COLORS["text"], linewidth=0.8, alpha=0.5)
         ax.set_ylabel("P&L ($)")
 
-        for i, (pnl, pct) in enumerate(zip(pnls, pcts)):
+        for i, (pnl, pct) in enumerate(zip(pnls, pcts, strict=True)):
             sign = "+" if pnl >= 0 else ""
             ax.text(i, pnl, f"{sign}${pnl:,.0f}\n({sign}{pct:.1f}%)",
                     ha="center", va="bottom" if pnl >= 0 else "top",
@@ -287,7 +286,6 @@ def chart_portfolio_allocation(
     """
     tickers = list(positions.keys())
     weights = [p["weight"] or 0 for p in positions.values()]
-    mvs = [p["market_value"] or 0 for p in positions.values()]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5), gridspec_kw={"width_ratios": [1, 1.3]})
     _apply_style(ax1, fig)

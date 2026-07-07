@@ -5,7 +5,7 @@ YahooDataFeed — yfinance connector for prices, ETFs, and historical data.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -44,7 +44,7 @@ class YahooDataFeed(DataFeed):
             import yfinance as yf
             self._yf = yf
         except ImportError:
-            raise ImportError("pip install yfinance")
+            raise ImportError("pip install yfinance") from None
         self._cache: dict[str, object] = {}
 
     def _ticker(self, symbol: str):

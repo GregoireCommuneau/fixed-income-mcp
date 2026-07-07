@@ -10,7 +10,7 @@ automatically converted to YoY% change in get_macro_indicator().
 from __future__ import annotations
 
 import time
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -82,7 +82,7 @@ class FREDDataFeed(DataFeed):
             from fredapi import Fred
             self._fred = Fred(api_key=api_key)
         except ImportError:
-            raise ImportError("pip install fredapi")
+            raise ImportError("pip install fredapi") from None
         self._cache: dict[str, tuple[float, Any]] = {}  # key -> (timestamp, data)
 
     def _get_series_cached(self, series_id: str) -> pd.Series:

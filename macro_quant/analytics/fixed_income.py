@@ -15,17 +15,14 @@ Formulas follow Bloomberg/ISDA conventions:
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
 from datetime import date
 from typing import NamedTuple
 
-import numpy as np
-
 from macro_quant.models.instruments import (
-    Bond, CouponFrequency, DayCountConvention, day_count_fraction,
+    Bond,
+    DayCountConvention,
+    day_count_fraction,
 )
-
 
 # ──────────────────────────────────────────────
 # Result types
