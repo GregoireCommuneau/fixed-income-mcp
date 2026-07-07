@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -37,6 +36,7 @@ from macro_quant.analytics.charts import (
 )
 from macro_quant.analytics.fixed_income import FixedIncomeEngine, YieldCurveAnalytics
 from macro_quant.analytics.risk import PositionRisk, RiskEngine
+from macro_quant.config import load_settings
 from macro_quant.data.fred import FREDDataFeed
 from macro_quant.data.yahoo import BOND_ETF_UNIVERSE, YahooDataFeed
 from macro_quant.models.alerts import (
@@ -66,9 +66,13 @@ class MacroQuantMCPServer:
         fred_api_key: str | None = None,
         risk_free_rate: float = 0.05,
     ) -> None:
+        # Fall back to validated settings if the key is not passed explicitly.
+        if fred_api_key is None:
+            fred_api_key = load_settings().fred_api_key
+
         # Data sources
         self._yahoo = YahooDataFeed()
-        self._fred = FREDDataFeed(fred_api_key or os.environ["FRED_API_KEY"])
+        self._fred = FREDDataFeed(fred_api_key)
 
         # Analytical engines
         self._fi_engine = FixedIncomeEngine()

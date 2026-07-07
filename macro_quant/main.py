@@ -173,8 +173,12 @@ def run_demo(mock: bool = False) -> None:
         print(curve.summary())
     else:
         try:
+            from macro_quant.config import ConfigError, load_settings
             from macro_quant.data.fred import FREDDataFeed
-            fred_key = os.environ.get("FRED_API_KEY")
+            try:
+                fred_key = load_settings().fred_api_key
+            except ConfigError:
+                fred_key = None
             if not fred_key:
                 print("  FRED_API_KEY not set — skipping live data. Use --mock for simulated data.")
             else:
@@ -253,13 +257,19 @@ def run_demo(mock: bool = False) -> None:
 
 def run_server() -> None:
     """Start the MCP server."""
+    from macro_quant.config import ConfigError, load_settings
     from macro_quant.mcp_server.server import MacroQuantMCPServer
-    fred_key = os.environ.get("FRED_API_KEY")
-    if not fred_key:
-        print("Error: FRED_API_KEY environment variable not set.", file=sys.stderr)
-        print("Get a free key at: https://fred.stlouisfed.org/docs/api/api_key.html", file=sys.stderr)
+
+    try:
+        settings = load_settings()
+    except ConfigError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    server = MacroQuantMCPServer(fred_api_key=fred_key)
+
+    server = MacroQuantMCPServer(
+        fred_api_key=settings.fred_api_key,
+        risk_free_rate=settings.risk_free_rate,
+    )
     print("Starting MacroQuant MCP Server...", file=sys.stderr)
     server.run()
 
