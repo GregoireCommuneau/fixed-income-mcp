@@ -1,5 +1,7 @@
 # MacroQuant
 
+[![CI](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml)
+
 **A fixed income & macro analysis toolkit that gives an AI real-time market intelligence.**
 
 MacroQuant is a personal project built to demonstrate applied quantitative finance reasoning: bond math, multi-factor risk decomposition, and macro analysis wired into Claude via the Model Context Protocol (MCP).

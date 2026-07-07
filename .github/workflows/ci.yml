@@ -1,0 +1,42 @@
+name: CI
+
+# Quand le robot se déclenche : à chaque push et à chaque pull request sur main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Lint, type-check, tests
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Récupère le code du dépôt sur la machine du robot.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Installe Python 3.12 (version de référence du projet).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # 3. Installe le projet + son outillage de développement.
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # 4. Linter — le code respecte-t-il les règles ?
+      - name: Ruff (lint)
+        run: ruff check macro_quant/
+
+      # 5. Vérificateur de types.
+      - name: Mypy (types)
+        run: mypy
+
+      # 6. Tests — toute la logique financière est-elle correcte ?
+      #    (Les tests sont hors-ligne : aucune clé API requise.)
+      - name: Pytest (tests)
+        run: pytest macro_quant/tests/ -q
