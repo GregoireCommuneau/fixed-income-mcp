@@ -2,309 +2,87 @@
 
 [![CI](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml)
 
-**A fixed income & macro analysis toolkit that gives an AI real-time market intelligence.**
+**A fixed income and macro research engine that gives an AI real, auditable market data, built as a production service rather than a notebook.**
 
-MacroQuant is a personal project built to demonstrate applied quantitative finance reasoning: bond math, multi-factor risk decomposition, and macro analysis wired into Claude via the Model Context Protocol (MCP).
+Large language models reason well about markets but have no access to the numbers. MacroQuant closes that gap. It exposes a fixed income and risk engine (bond math, multi-factor stress tests, tail-aware VaR) to an AI assistant through the Model Context Protocol (MCP). The assistant can then answer a question like "what happens to my portfolio in a stagflation scenario?" with a decomposed, reproducible P&L instead of a plausible guess. The code is fully typed, linted, tested (70 tests), containerised and validated by CI.
 
-The idea: instead of asking an LLM to guess at market data, give it live access to Treasury curves, credit spreads, inflation breakevens, and a portfolio engine that can decompose P&L into rate, spread, breakeven, and convexity components. The AI becomes a research partner with actual numbers, not just narratives.
+## Table of Contents
 
-### What it does in practice
+**Part I, the study**
+- [1. Problem](#1-problem)
+- [2. Approach](#2-approach)
+- [3. Design decisions](#3-design-decisions)
+- [4. Results](#4-results)
+
+**Part II, reference**
+- [Installation and quick start](#installation-and-quick-start)
+- [MCP tools](#mcp-tools)
+- [Data sources](#data-sources)
+- [Models and analytics](#models-and-analytics)
+- [Project structure](#project-structure)
+- [Development](#development)
+
+---
+
+# Part I, the study
+
+## 1. Problem
+
+Ask a general-purpose model "is the yield curve inverted, and what would a 150bp rate shock do to a long-duration portfolio?" and it answers confidently, often with numbers that are stale, invented, or inconsistent. It has good reasoning about finance but no live data and no calculation engine. Two things go wrong:
+
+- It quotes a 10Y yield from its training data, not from the market today.
+- It estimates a P&L impact in words instead of computing duration, convexity and spread sensitivity.
+
+The usual quick fixes are not enough. Pasting data into the prompt is manual, goes stale immediately, and still leaves the model to do bond math in its head. Letting the model write and run code is better, but it re-derives pricing and risk logic from scratch on every request, with no shared, tested engine, so results drift and mistakes stay invisible.
+
+What is missing is a trustworthy tool the model can call: something that fetches real data and runs the same validated code every time.
+
+## 2. Approach
+
+Every quantitative capability is a tool the assistant can call over MCP. When the user asks a question, the model calls a tool, the tool fetches data (Treasury curve, credit spreads, breakevens, ETF prices) and runs deterministic code (pricing, duration and convexity, stress tests, VaR), and the model interprets real numbers instead of inventing them.
+
+```
+Claude  --MCP (stdio)-->  MacroQuantMCPServer (facade, 10 tools)
+                                 |
+              +------------------+------------------+
+              |                  |                  |
+         Data layer        Analytics layer     Models layer
+       FRED, Yahoo       FixedIncome, Risk    Bond, Portfolio
+    (abstract DataFeed)   Charts (stateless)  (immutable, Pydantic)
+```
+
+Each layer depends only on the one below it. The MCP server is a facade that aggregates everything behind a single interface. The sections below explain the decisions that make the engine trustworthy, and the engineering that makes it a service.
+
+## 3. Design decisions
+
+Each point states the problem it solves, the choice made, and the evidence.
+
+### Grounding the model in live data
+
+The model should never guess a number that exists. Every capability is a tool backed by a live source: FRED for the Treasury curve and macro indicators, Yahoo Finance for ETF prices. One request resolves to a tool call that returns sourced, decomposed numbers:
 
 ```
 > "What happens to my portfolio in a stagflation scenario?"
 
 Stagflation  |  PnL: -$58,025 (-15.3%)
-  rate:  -$54,652  |  spread: -$12,868  |  breakeven: +$904  |  convexity: +$8,592
+  rate: -$54,652   spread: -$12,868   breakeven: +$904   convexity: +$8,592
 
-The TIPS position gains +$904 from rising breakeven inflation,
-but it's only 4.4% of the portfolio —> not enough to offset
-the duration hit from +150bp rates.
+The TIPS position gains +$904 from rising breakeven inflation, but it is only
+4.4% of the portfolio, not enough to offset the duration hit from +150bp rates.
 ```
 
-### Key design choices
+The engine computed the -$58,025; the model only explained it.
 
-- **Multi-factor stress tests** -> not just "rates up 100bp" but calibrated macro scenarios (Recession, Stagflation, Credit Crunch) with rate, spread, breakeven, and convexity decomposition
-- **TIPS breakeven modeling** -> TIPS respond to real rates, not nominal rates. The model captures `y_real = y_nominal - breakeven` so an inflation surprise correctly benefits TIPS positions
-- **Immutable data model** -> all Pydantic models are frozen. Portfolio mutations return new instances, making state changes explicit and traceable
-- **Separation of concerns** -> abstract `DataFeed` interface, stateless analytics engines (`@staticmethod`), facade pattern for the MCP server
+### Stress tests that reflect how markets break
 
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [MCP Tools Reference](#mcp-tools-reference)
-- [Project Structure](#project-structure)
-- [Data Sources](#data-sources)
-- [Models](#models)
-- [Analytics](#analytics)
-- [Alert System](#alert-system)
-- [Configuration](#configuration)
-- [Usage Examples](#usage-examples)
-- [Development](#development)
-
----
-
-## Features
-
-**Market Data**
-- US Treasury yield curve (11 tenors, 1M to 30Y) via FRED
-- 15 macro indicators: CPI, Core PCE, NFP, unemployment, GDP, Fed Funds, M2, credit spreads (HY/IG OAS in bps), inflation breakevens, real rates
-- 9 bond ETF prices and metadata via Yahoo Finance: TLT, IEF, SHY, AGG, LQD, HYG, EMB, TIP, BND
-- Correlation matrices with Ledoit-Wolf shrinkage estimator
-- Historical spread analysis with percentile rankings
-
-**Fixed Income Analytics**
-- Bond pricing from YTM (discounted cash flow)
-- YTM calculation from price (Newton-Raphson solver with bisection fallback)
-- Macaulay, modified, and effective duration
-- Convexity (analytical and effective)
-- DV01 (dollar value of a basis point)
-- Key rate durations
-- Carry and rolldown analysis
-- Breakeven rate change
-- Nelson-Siegel-Svensson curve fitting and interpolation
-- Forward rate and instantaneous forward rate calculation
-- Day count conventions: ACT/ACT, 30/360, ACT/360, ACT/365
-
-**Portfolio Management**
-- In-memory portfolio with disk persistence (JSON)
-- Automatic price updates via Yahoo Finance
-- Weighted average duration, YTM, and maturity
-- Unrealized P&L at position and portfolio level
-- Allocation breakdown by market value
-- Immutable data model (mutations return new instances)
-
-**Risk Management**
-- Value at Risk: historical, parametric, and Cornish-Fisher (adjusts for skewness & kurtosis)
-- Conditional VaR (Expected Shortfall)
-- EWMA volatility (RiskMetrics / JP Morgan, λ=0.94)
-- Geometric Sharpe ratio and Calmar ratio
-- Max drawdown analysis
-- Multi-factor stress tests with 5 risk components:
-  - Rate risk (DV01 × rate shock)
-  - Spread risk by category (IG, HY, EM)
-  - Breakeven inflation risk (TIPS)
-  - Convexity adjustment: ½C(Δy)²
-- Calibrated macro scenarios: Recession, Stagflation, Credit Crunch, QE Rally, Soft Landing
-- Custom scenario support (simple rate-only or multi-factor)
-- PCA-based yield curve stress scenarios (level / slope / curvature decomposition)
-
-**Visualization**
-- Auto-generated PNG charts for yield curve, stress tests, portfolio allocation, spread history, correlation heatmap, and macro dashboard
-- Dark theme with consistent styling across all charts
-- Yield curve chart with historical overlays (1M ago, 1Y ago)
-- Stress test chart with grouped bars showing rate/spread/breakeven/convexity decomposition
-- Charts saved to `charts/` directory and returned as file paths in MCP tool responses
-
-**Alert System**
-- Threshold, crossover, spread, and z-score conditions
-- Severity levels: INFO, WARNING, CRITICAL
-- Cooldown mechanism to prevent alert spam
-- Pre-configured alerts: 2s10s inversion, HY spreads > 500bp, 10Y rate > 5%, breakeven inflation > 3%
-
----
-
-## Architecture
+A naive stress test ("rates +100bp") misrepresents real stress. In a recession, rates fall while credit spreads blow out, and a single-factor shock cannot express that. Here, scenarios are multi-factor and calibrated on historical episodes. Each one moves rates, IG/HY/EM spreads and inflation breakevens independently, and the P&L is decomposed:
 
 ```
-Claude Code
-    |
-    | MCP Protocol (stdio)
-    |
-+---v---------------------------------------------+
-|           MacroQuantMCPServer (Facade)           |
-|           10 tools exposed to Claude             |
-+------+-------------------+-----------------------+
-       |                   |
-+------v------+    +-------v--------+
-|  Data Layer |    | Analytics Layer|
-|-------------|    |----------------|
-| FREDDataFeed|    | FixedIncome    |
-| YahooData   |    | Engine         |
-| Feed        |    | YieldCurve     |
-| (abstract:  |    | Analytics      |
-|  DataFeed)  |    | RiskEngine     |
-+------+------+    | Charts         |
-       |           +-------+--------+
-       |                   |
-+------v-------------------v-------+
-|          Models Layer            |
-|----------------------------------|
-| Bond, BondETF, BondFuture        |
-| YieldCurve, Spread               |
-| MacroIndicator                   |
-| Portfolio, Position              |
-| Alert, AlertManager              |
-+----------------------------------+
+dP ~= -D_rate * dr  -  D_spread * ds  +  D_be * dbe  +  0.5 * C * (dy)^2
+        rate            spread           breakeven        convexity
 ```
 
-Each layer depends only on the one below it. The MCP server acts as a facade that aggregates all components into a single interface.
-
----
-
-## Installation
-
-**Requirements:** Python 3.11+
-
-```bash
-# Clone the repository
-git clone <repo-url>
-cd macro_quant
-
-# Install the package
-pip install -e .
-```
-
-**Dependencies:**
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| pydantic | >= 2.5.0 | Data models and validation |
-| yfinance | >= 0.2.36 | Yahoo Finance market data |
-| fredapi | >= 0.5.1 | FRED economic data |
-| numpy | >= 1.26.0 | Numerical computation |
-| pandas | >= 2.1.0 | Time series and DataFrames |
-| scipy | >= 1.11.0 | Statistical distributions (VaR, curve fitting) |
-| matplotlib | >= 3.8.0 | Chart generation |
-| mcp | >= 1.0.0 | Model Context Protocol server |
-
-**API Keys:**
-
-A FRED API key is required for live data. Registration is free at [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html). Yahoo Finance requires no API key.
-
----
-
-## Quick Start
-
-### Demo Mode (no setup required)
-
-Run the full demo with mock data to see all components in action:
-
-```bash
-python macro_quant/main.py --demo --mock
-```
-
-This demonstrates fixed income calculations, portfolio construction, stress tests, yield curve analysis, and the alert system using synthetic data.
-
-Run with live FRED data:
-
-```bash
-export FRED_API_KEY="your_key_here"
-python macro_quant/main.py --demo
-```
-
-### MCP Server Mode (for Claude Code)
-
-1. Set your FRED API key in `.mcp.json` or as an environment variable:
-
-```bash
-export FRED_API_KEY="your_key_here"
-```
-
-2. Launch the MCP server:
-
-```bash
-python macro_quant/main.py --serve
-```
-
-3. Or configure Claude Code to auto-launch it. Add this to your `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "macro-quant": {
-      "command": "python",
-      "args": ["macro_quant/main.py", "--serve"],
-      "env": {
-        "FRED_API_KEY": "your_key_here"
-      }
-    }
-  }
-}
-```
-
-Once connected, Claude Code can use all 10 tools directly in conversation.
-
-### Docker
-
-The project ships with a multi-stage `Dockerfile` (non-root runtime user):
-
-```bash
-# Build the image
-docker build -t macroquant .
-
-# Run the console demo (no API key needed)
-docker run --rm macroquant python -m macro_quant.main --demo --mock
-
-# Run the MCP server (pass your FRED key at runtime)
-docker run --rm -i -e FRED_API_KEY=xxxx macroquant
-```
-
-The secret is injected at runtime via `-e` and never baked into the image.
-
----
-
-## MCP Tools Reference
-
-### get_yield_curve
-
-Retrieves the current US Treasury yield curve.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| source | string | "fred" | Data source: "fred" (recommended) or "yahoo" (ETF approximation) |
-
-Returns: rates for all tenors, 2s10s and 5s30s spreads (bps), inversion flag, slope classification (steep/normal/flat/inverted), and a `chart` path to the yield curve PNG with historical overlays.
-
-### get_macro_dashboard
-
-Fetches all macro indicators from FRED in a single call. No parameters.
-
-Returns: CPI, Core CPI, PCE, Core PCE (all as YoY%), NFP, unemployment, manufacturing employment, GDP, Fed Funds rate, M2, HY/IG OAS (in bps), 5Y/10Y breakevens, 5Y/10Y real rates. Each with current value, previous value, change, and unit. Includes a `_chart` path to the macro dashboard PNG.
-
-### get_bond_etf_universe
-
-Returns enriched data for 9 reference bond ETFs. No parameters.
-
-Returns: price, average duration, average maturity, average YTM, 30-day yield, AUM, and expense ratio for TLT, IEF, SHY, AGG, LQD, HYG, EMB, TIP, BND.
-
-### compute_bond_metrics
-
-Calculates full analytics for a single bond.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| ticker | string | yes | Bond identifier |
-| coupon_rate | float | yes | Annual coupon in % (e.g., 4.5) |
-| maturity_date | string | yes | Format "YYYY-MM-DD" |
-| price | float | no | Price as % of par (e.g., 98.5) |
-| ytm | float | no | Yield to maturity in % (e.g., 4.8) |
-| face_value | float | no | Default: 1000.0 |
-| frequency | int | no | Coupon frequency: 1=annual, 2=semi (default), 4=quarterly |
-
-Provide at least `price` or `ytm`. Returns: YTM, clean/dirty price, accrued interest, Macaulay/modified/effective duration, convexity, DV01, breakeven rate change.
-
-### analyze_portfolio
-
-Full analysis of the in-memory portfolio. No parameters.
-
-Fetches live prices from Yahoo Finance, computes position-level and aggregate metrics (market value, P&L, duration, DV01), allocation weights, and runs multi-factor stress tests (Recession, Stagflation, Credit Crunch, QE Rally, Soft Landing) with rate/spread/breakeven/convexity decomposition. Includes a `chart` path to the portfolio allocation PNG (donut + P&L bars).
-
-### stress_test_portfolio
-
-Multi-factor stress tests on the portfolio.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| custom_scenarios | dict | null | Custom scenarios. Two formats: simple `{name: bps}` for rate-only shocks, or multi-factor `{name: {rates_bps, ig_spread_bps, hy_spread_bps, em_spread_bps, breakeven_bps}}`. If null, uses 5 calibrated macro scenarios. |
-
-**Formula:** `ΔP ≈ -D_rate×Δr - D_spread×Δs + D_be×Δbe + ½C(Δy)²`
-
-Default scenarios with calibrated shocks (bps):
+The five calibrated scenarios (shocks in bps) encode genuinely different regimes:
 
 | Scenario | Rates | IG | HY | EM | Breakeven |
 |----------|------:|---:|---:|---:|----------:|
@@ -314,138 +92,162 @@ Default scenarios with calibrated shocks (bps):
 | QE Rally | -50 | -30 | -100 | -80 | +20 |
 | Soft Landing | -25 | -10 | -20 | -15 | +5 |
 
-Returns: per-scenario P&L with rate/spread/breakeven/convexity decomposition, portfolio DV01, and a `chart` path to the grouped bar chart PNG.
+Recession and Stagflation move rates in opposite directions, a distinction a single-factor model cannot make. A PCA mode also derives level, slope and curvature shocks empirically from historical curve moves.
 
-### run_alerts
+### Getting TIPS right
 
-Evaluates all registered alerts against current market data. No parameters.
+Treating every bond as sensitive to nominal rates is wrong for TIPS, which respond to real rates. An inflation surprise should benefit them, the opposite sign to a nominal bond. The model uses `y_real = y_nominal - breakeven`, so a rising breakeven lowers the real yield and produces a gain. In the stagflation output above, the `breakeven: +$904` term is positive while every nominal component is negative: the TIPS position correctly gains from the +80bp breakeven shock.
 
-Fetches live data from FRED (yield curve, credit spreads, breakevens), checks each alert condition, and returns triggered alerts with severity.
+### Bond math to a professional standard
 
-### get_spread_history
+"Good enough" bond math quietly produces wrong risk numbers: mishandled accrued interest, a duration that ignores the coupon schedule, a solver that fails to converge. The `FixedIncomeEngine` follows Bloomberg/ISDA conventions:
 
-Historical analysis of the spread between two FRED series.
+- YTM solved from price by Newton-Raphson, with a bisection fallback.
+- Duration and convexity computed both analytically and by bump-and-reprice (`effective_duration`), the latter being correct for bonds with optionality.
+- Key rate durations decompose sensitivity along the curve.
+- Four day-count conventions (ACT/ACT, 30/360, ACT/360, ACT/365) for correct accrued interest.
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| series_a | string | required | FRED series ID (e.g., "DGS10") |
-| series_b | string | required | FRED series ID (e.g., "DGS2") |
-| days | int | 365 | Lookback period |
+On a 5Y bond priced at 97, the analytical and effective durations agree (4.47y), as they should for a vanilla bond.
 
-Returns: current spread, average, min, max, standard deviation, percentile ranking, last 10 values, and a `chart` path to the spread history PNG (line chart with avg/sigma bands).
+### Risk measures that respect fat tails
 
-### get_correlation_matrix
-
-Correlation matrix of daily returns across bond ETFs. Uses Ledoit-Wolf shrinkage estimator when available for more stable estimates.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| tickers | list | ["TLT","IEF","SHY","LQD","HYG","AGG","TIP","EMB"] | Tickers to include |
-| days | int | 252 | Lookback period (252 = 1 trading year) |
-
-Returns: correlation matrix and a `chart` path to the heatmap PNG.
-
-### add_etf_position
-
-Adds a bond ETF position to the portfolio.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| ticker | string | yes | ETF ticker (e.g., "TLT") |
-| quantity | float | yes | Number of shares |
-| avg_cost | float | yes | Average purchase price |
-
-Automatically enriches the ETF with live data from Yahoo Finance (price, YTM, AUM, expense ratio) and averages cost if a position in the same ticker already exists. Portfolio is persisted to disk.
-
----
-
-## Project Structure
+A Gaussian VaR understates risk for return distributions with negative skew and fat tails, exactly the shape of rate and credit portfolios. Three VaR methods are provided, ending with Cornish-Fisher, which adjusts the Gaussian quantile for skewness (S) and kurtosis (K):
 
 ```
-macro_quant/
-|-- pyproject.toml              # Package configuration
-|-- macro_quant/
-|   |-- __init__.py
-|   |-- main.py                 # CLI entry point (--serve / --demo / --mock)
-|   |
-|   |-- data/                   # Data feeds
-|   |   |-- base.py             # DataFeed abstract interface
-|   |   |-- fred.py             # FRED API (Treasury rates, macro indicators, OAS→bps conversion)
-|   |   |-- yahoo.py            # Yahoo Finance (ETF prices, OHLCV, correlations)
-|   |
-|   |-- models/                 # Domain objects (Pydantic v2, immutable)
-|   |   |-- instruments.py      # Bond, BondETF, BondFuture
-|   |   |-- yield_curve.py      # YieldCurve, YieldPoint, Spread, MacroIndicator, NSS fitting
-|   |   |-- portfolio.py        # Portfolio, Position, PortfolioMetrics
-|   |   |-- alerts.py           # Alert, AlertManager, AlertCondition subclasses
-|   |
-|   |-- analytics/              # Computation engines (stateless)
-|   |   |-- fixed_income.py     # FixedIncomeEngine, YieldCurveAnalytics
-|   |   |-- risk.py             # RiskEngine, VaR (historical/parametric/Cornish-Fisher), stress tests
-|   |   |-- charts.py           # Chart generation (matplotlib, dark theme, PNG output)
-|   |
-|   |-- mcp_server/             # MCP integration
-|   |   |-- server.py           # MacroQuantMCPServer (facade + MCP protocol)
-|   |
-|   |-- tests/                  # Unit tests (pytest)
-|   |   |-- test_fixed_income.py
-|   |   |-- test_portfolio.py
-|   |   |-- test_risk.py
-|   |
-|   |-- charts/                 # Generated PNG charts (auto-created, gitignored)
+z_cf = z + (z^2 - 1)*S/6 + (z^3 - 3z)*K/24 - (2z^3 - 5z)*S^2/36
+```
+
+Volatility uses EWMA (RiskMetrics, lambda 0.94) so it reacts to volatility clustering. A dedicated test builds a negatively-skewed return series and checks that Cornish-Fisher VaR actually diverges from the parametric estimate.
+
+### An architecture built to evolve
+
+A single monolithic script cannot grow. Adding an equities feed or a new signal would mean touching everything. Three decisions prevent that:
+
+- An abstract `DataFeed` interface, so FRED and Yahoo are interchangeable implementations of one contract. Adding an equities feed is a new class, not a rewrite.
+- Stateless analytics (`@staticmethod`): same inputs, same outputs, easy to test.
+- Immutable domain models (Pydantic `frozen=True`): a mutation returns a new instance, so state changes on a portfolio are explicit and traceable.
+
+The dependency graph is strictly one-directional, which is what makes the planned next step (extending from fixed income toward systematic equities) an addition rather than a refactor.
+
+### From script to service
+
+The target is software engineering on a trading desk, so correct analytics in an untyped, untested, un-deployable script is not enough. The code was hardened in layers:
+
+| Concern | What was done |
+|---|---|
+| Type safety | Full mypy pass, Pydantic models, catches None-handling bugs before runtime |
+| Static analysis | ruff clean (pyflakes, bugbear, import hygiene, modern syntax) |
+| Testing | 70 pytest cases over pricing, portfolio and risk logic |
+| Observability | structured logging per module, no silently swallowed errors |
+| Configuration | validated settings (pydantic-settings); a missing key fails with a clear message, not a traceback |
+| Packaging | multi-stage Dockerfile, non-root runtime user, secrets injected at runtime |
+| CI | GitHub Actions runs lint, type-check and tests on every push |
+
+Type checking found real bugs, several places where a `None` (a missing price, an absent data point) flowed into a division or a `float()` and would have crashed on incomplete data. They were fixed, not silenced.
+
+## 4. Results
+
+- Grounded answers: every market figure is fetched or computed, never guessed.
+- Decomposed risk: P&L split into rate, spread, breakeven and convexity per scenario and per position.
+- Auto-generated charts: yield curve (with 1M and 1Y overlays), stress-test bars, allocation, spread history, correlation heatmap, macro dashboard, returned as file paths in the tool responses.
+- A reproducible, tested service that runs the same code on every call, locally or in a container.
+
+A typical session with the assistant:
+
+```
+> Show me the current yield curve and tell me if it's inverted
+> What's the macro picture right now? Focus on inflation and employment
+> Add 200 shares of TLT at 95.50 and 500 shares of HYG at 78.20 to my portfolio
+> Run a stress test, what happens in a stagflation scenario?
+> Compute metrics for a 10-year bond with a 4.5% coupon trading at 97.2
+> What's the correlation between TLT and HYG over the last 6 months?
 ```
 
 ---
 
-## Data Sources
+# Part II, reference
 
-### FRED (Federal Reserve Economic Data)
+## Installation and quick start
 
-**Treasury Series** (11 tenors):
+Requirements: Python 3.11+ (developed and CI-tested on 3.12).
 
-| Tenor | FRED Series |
-|-------|-------------|
-| 1M | DGS1MO |
-| 3M | DGS3MO |
-| 6M | DGS6MO |
-| 1Y | DGS1 |
-| 2Y | DGS2 |
-| 3Y | DGS3 |
-| 5Y | DGS5 |
-| 7Y | DGS7 |
-| 10Y | DGS10 |
-| 20Y | DGS20 |
-| 30Y | DGS30 |
+```bash
+git clone https://github.com/GregoireCommuneau/fixed-income-mcp.git
+cd fixed-income-mcp
+pip install -e .            # add ".[dev]" for the test/lint/type tooling
+```
 
-**Macro Indicators** (15 series):
+A FRED API key (free at [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html)) is required for live data; Yahoo Finance needs none. Provide it in a `.env` file at the project root, or as an environment variable:
 
-| Key | FRED Series | Unit | Description |
-|-----|-------------|------|-------------|
-| CPI_YOY | CPIAUCSL | % | Consumer Price Index (year-over-year, auto-computed) |
-| CORE_CPI | CPILFESL | % | CPI excluding food and energy |
-| PCE | PCEPI | % | Personal Consumption Expenditures |
-| CORE_PCE | PCEPILFE | % | PCE excluding food and energy |
-| NFP | PAYEMS | K jobs | Non-Farm Payrolls (month-over-month change) |
-| UNEMP | UNRATE | % | Unemployment rate |
-| MFG_EMPLOYMENT | MANEMP | K jobs | Manufacturing employment (month-over-month change) |
-| GDP_QOQ | A191RL1Q225SBEA | % | GDP quarter-over-quarter |
-| FED_FUNDS | FEDFUNDS | % | Federal Funds rate |
-| M2 | M2SL | $B | M2 money supply |
-| HY_OAS | BAMLH0A0HYM2 | bps | High yield OAS spread (auto-converted from %) |
-| IG_OAS | BAMLC0A0CM | bps | Investment grade OAS spread (auto-converted from %) |
-| BREAKEVEN_5Y | T5YIE | % | 5-year inflation breakeven |
-| BREAKEVEN_10Y | T10YIE | % | 10-year inflation breakeven |
-| REAL_RATE_5Y | DFII5 | % | 5-year real rate (TIPS) |
-| REAL_RATE_10Y | DFII10 | % | 10-year real rate (TIPS) |
+```bash
+FRED_API_KEY=your_key_here
+```
 
-Price index series (CPI, PCE) are automatically converted to YoY% change. Payroll series (NFP, MFG) are automatically converted to month-over-month change. OAS series are automatically converted from percentage points to basis points.
+Demo (no key needed):
 
-### Yahoo Finance
+```bash
+python macro_quant/main.py --demo --mock     # synthetic data
+python macro_quant/main.py --demo            # live FRED data
+```
 
-**Bond ETF Universe** (9 ETFs):
+MCP server (for Claude Code), add to `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "macro-quant": {
+      "command": "python",
+      "args": ["macro_quant/main.py", "--serve"],
+      "env": { "FRED_API_KEY": "your_key_here" }
+    }
+  }
+}
+```
+
+Docker (multi-stage build, non-root user):
+
+```bash
+docker build -t macroquant .
+docker run --rm macroquant python -m macro_quant.main --demo --mock   # console demo
+docker run --rm -i -e FRED_API_KEY=xxxx macroquant                    # MCP server
+```
+
+The secret is passed at runtime with `-e` and never baked into the image.
+
+## MCP tools
+
+Ten tools are exposed to the assistant. Tools that produce a figure also return a `chart` path to a generated PNG.
+
+| Tool | Purpose |
+|------|---------|
+| `get_yield_curve` | Current Treasury curve, 2s10s and 5s30s spreads, inversion flag, slope classification |
+| `get_macro_dashboard` | 15 FRED macro indicators (CPI/PCE as YoY%, NFP, unemployment, Fed Funds, OAS in bps, breakevens, real rates) |
+| `get_bond_etf_universe` | Enriched data for 9 reference bond ETFs |
+| `compute_bond_metrics` | YTM, clean/dirty price, duration (Macaulay, modified, effective), convexity, DV01 for one bond |
+| `analyze_portfolio` | Live-priced portfolio metrics, multi-factor stress tests, allocation chart |
+| `stress_test_portfolio` | Multi-factor stress tests (5 calibrated scenarios or custom) with full decomposition |
+| `run_alerts` | Evaluate registered alerts against current market data |
+| `get_spread_history` | Spread between two FRED series with percentile ranking |
+| `get_correlation_matrix` | Correlation of ETF daily returns (Ledoit-Wolf shrinkage when available) |
+| `add_etf_position` | Add an ETF position (auto-enriched from Yahoo), persisted to disk |
+
+Selected parameters:
+
+- `compute_bond_metrics`: `ticker`, `coupon_rate` (% e.g. 4.5), `maturity_date` ("YYYY-MM-DD"), and at least one of `price` (% of par) or `ytm`; optional `face_value` (1000), `frequency` (1/2/4).
+- `stress_test_portfolio`: `custom_scenarios`, either simple `{name: bps}` (rate-only) or multi-factor `{name: {rates_bps, ig_spread_bps, hy_spread_bps, em_spread_bps, breakeven_bps}}`.
+- `get_correlation_matrix`: `tickers` (default 8 bond ETFs), `days` (default 252).
+- `get_spread_history`: `series_a`, `series_b` (FRED IDs), `days` (default 365).
+
+## Data sources
+
+### FRED
+
+Treasury tenors 1M to 30Y map to the `DGS...` series. Macro indicators include CPI, Core CPI, PCE and Core PCE (converted to YoY%), NFP and manufacturing employment (converted to month-over-month change), unemployment, GDP QoQ, Fed Funds, M2, HY and IG OAS (converted from % to bps), 5Y and 10Y breakevens, and 5Y and 10Y real rates.
+
+### Yahoo Finance, bond ETF universe (9 ETFs)
 
 | Ticker | Name | Duration | Maturity | Risk Category | Spread Duration |
-|--------|------|----------|----------|---------------|-----------------|
+|--------|------|---------:|---------:|---------------|----------------:|
 | TLT | iShares 20+ Year Treasury | 17.0y | 25.0y | treasury | 0.0y |
 | IEF | iShares 7-10 Year Treasury | 7.5y | 8.5y | treasury | 0.0y |
 | SHY | iShares 1-3 Year Treasury | 1.9y | 1.9y | treasury | 0.0y |
@@ -456,239 +258,50 @@ Price index series (CPI, PCE) are automatically converted to YoY% change. Payrol
 | TIP | iShares TIPS Bond ETF | 6.8y | 7.5y | tips | 0.0y |
 | BND | Vanguard Total Bond Market | 6.5y | 8.9y | ig | 3.5y |
 
-Risk category determines which spread shock applies in multi-factor stress tests. Spread duration measures OAS sensitivity separate from rate duration.
+Risk category selects which spread shock applies in stress tests. Spread duration measures OAS sensitivity separately from rate duration.
 
----
+## Models and analytics
 
-## Models
+Models (Pydantic v2, immutable). `Instrument` (abstract) with `Bond`, `BondETF`, `BondFuture`. `YieldCurve` holds `YieldPoint` objects, computes 2s10s and 5s30s, detects inversion, classifies slope, and supports Nelson-Siegel-Svensson fitting and forward rates. `Portfolio` and `Position` aggregate DV01, spread DV01, weighted duration and YTM. `Alert` and `AlertManager` use the Strategy pattern for conditions and the Observer pattern for dispatch.
 
-All models use Pydantic v2 with `model_config = ConfigDict(frozen=True)` (immutable). Mutations return new instances.
+Analytics (stateless engines):
 
-**Instruments hierarchy:** `Instrument` (abstract) -> `Bond`, `BondETF`, `BondFuture`. Each instrument is hashable by ticker and carries optional market data fields (price, ytm, duration). Bonds include settlement date calculation (T+N business days), accrued interest, and multiple day count conventions.
+- `FixedIncomeEngine`: cash flows, price and YTM (Newton-Raphson with bisection), Macaulay/modified/effective duration, convexity, DV01, key rate durations, day-count conventions.
+- `YieldCurveAnalytics`: carry, rolldown, breakeven rate change.
+- `RiskEngine`: VaR (historical, parametric, Cornish-Fisher), CVaR, EWMA volatility, geometric Sharpe, Calmar, max drawdown, multi-factor stress tests, PCA curve scenarios.
+- `charts`: six dark-themed PNGs (yield curve, stress test, allocation, spread history, macro dashboard, correlation heatmap).
 
-**Yield curve:** `YieldCurve` holds a dict of `YieldPoint` objects keyed by tenor. Computes 2s10s and 5s30s spreads automatically, detects curve inversion, classifies slope as steep (>100bp) / normal (25-100bp) / flat (0-25bp) / inverted (<0bp). Supports Nelson-Siegel-Svensson fitting, rate interpolation, forward rates, and instantaneous forward rates.
+Alert conditions: `ThresholdCondition`, `CrossoverCondition`, `SpreadCondition`, `ZScoreCondition`; severities INFO, WARNING, CRITICAL; a cooldown prevents spam. Pre-configured: 2s10s inversion (CRITICAL), HY OAS above 500bp, 10Y above 5%, 10Y breakeven above 3%.
 
-**Portfolio:** `Portfolio` contains `Position` objects keyed by ticker. `add_position()` returns a new Portfolio (immutable pattern) and auto-averages cost for existing positions. `compute_metrics()` aggregates DV01, spread DV01, weighted duration, weighted YTM across all positions.
-
-**Alerts:** Uses the Strategy pattern for conditions (`ThresholdCondition`, `CrossoverCondition`, `SpreadCondition`, `ZScoreCondition`) and the Observer pattern for dispatching (`AlertManager` routes results to registered handlers by severity).
-
----
-
-## Analytics
-
-### FixedIncomeEngine
-
-Stateless calculator for bond-level metrics. All core methods are `@staticmethod`.
-
-- `cash_flows()` generates the full coupon schedule
-- `dirty_price_from_ytm()` discounts cash flows to compute theoretical price
-- `ytm_from_price()` inverts the pricing equation using Newton-Raphson with bisection fallback
-- `duration_and_convexity()` computes Macaulay, modified, and effective duration + convexity
-- `accrued_interest()` handles ACT/ACT, 30/360, ACT/360, ACT/365 day count conventions
-- `dv01()` computes dollar value per basis point
-- `key_rate_durations()` decomposes duration sensitivity by tenor bucket
-- `compute_all()` runs the full pipeline and returns a `BondMetrics` named tuple
-
-### YieldCurveAnalytics
-
-- `carry()` estimates carry income (long rate minus short rate)
-- `rolldown()` estimates price gain from time decay on the curve
-- `breakeven_rate_change()` computes the yield change that would offset total return
-
-### RiskEngine
-
-**Volatility:**
-- `volatility()` standard deviation of returns (annualized)
-- `ewma_volatility()` exponentially weighted (RiskMetrics, λ=0.94), reacts faster to volatility clustering
-
-**Value at Risk:**
-- `var_historical()` percentile-based VaR using overlapping multi-day returns (no naive √t scaling)
-- `var_parametric()` normal distribution assumption with parametric CVaR
-- `var_cornish_fisher()` adjusts for skewness & kurtosis: `z_cf = z + (z²-1)S/6 + (z³-3z)K/24 - (2z³-5z)S²/36`
-
-**Drawdown & Ratios:**
-- `max_drawdown()` peak-to-trough drawdown
-- Geometric Sharpe ratio: `(geometric_return - rf) / vol`
-- Calmar ratio: `annualized_return / |max_drawdown|`
-
-**Multi-factor Stress Tests:**
-- `stress_test_v2()` applies 5 risk components per position:
-  - **Rate:** DV01 × rate shock (bps)
-  - **Spread:** spread DV01 × category-specific spread shock (IG/HY/EM)
-  - **Breakeven:** for TIPS positions, `-DV01 × breakeven_bps` (rising breakeven = TIPS gain, since y_real = y_nominal - breakeven)
-  - **Convexity:** `½ × C × (Δy_total)²` where Δy is the total yield change (rate + spread for credit, rate - breakeven for TIPS)
-- 5 calibrated macro scenarios: Recession, Stagflation, Credit Crunch, QE Rally, Soft Landing
-- Custom scenarios via `stress_test_v2(scenarios={...})`
-
-**PCA Scenarios:**
-- `pca_curve_scenarios()` decomposes historical yield curve changes into principal components (level / slope / curvature) using SVD, then generates stress scenarios at ±Nσ along each component
-
-### Charts (analytics/charts.py)
-
-Auto-generates dark-themed PNG charts, saved to `charts/`. Each function returns the absolute file path.
-
-| Function | Output | Description |
-|----------|--------|-------------|
-| `chart_yield_curve()` | yield_curve.png | Line chart with annotations per tenor, historical overlays, 2s10s in title |
-| `chart_stress_test()` | stress_test.png | Grouped vertical bars: rate/spread/breakeven/convexity/total per scenario |
-| `chart_portfolio_allocation()` | portfolio_allocation.png | Donut chart (weights) + horizontal bars (P&L by position) |
-| `chart_spread_history()` | spread_history.png | Line chart with average, ±1σ band, current value annotation |
-| `chart_macro_dashboard()` | macro_dashboard.png | Grouped table with directional arrows and proportional change bars |
-| `chart_correlation_matrix()` | correlation_matrix.png | Heatmap with diverging colormap and cell annotations |
-
----
-
-## Alert System
-
-Four alert condition types are available:
-
-| Type | Trigger Logic | Example |
-|------|--------------|---------|
-| ThresholdCondition | value OP threshold | 2s10s spread < 0 bps |
-| CrossoverCondition | value crosses a level (up/down/both) | 10Y rate crosses 5% |
-| SpreadCondition | spread between two values exceeds threshold | HY-IG spread > 300bps |
-| ZScoreCondition | z-score exceeds threshold | Spread z-score > 2.0 |
-
-Pre-configured alerts on server startup:
-
-| Alert | Series | Severity | Condition |
-|-------|--------|----------|-----------|
-| 2s10s Curve Inversion | 2s10s_spread | CRITICAL | < 0 bps |
-| HY Spreads Elevated | HY_OAS | WARNING | > 500 bps |
-| 10Y Rate Above 5% | DGS10 | WARNING | > 5.0% |
-| Breakeven 10Y High | BREAKEVEN_10Y | WARNING | > 3.0% |
-
-Alerts include a cooldown mechanism (default: 60 minutes) to prevent repeated triggering.
-
----
-
-## Configuration
-
-### .mcp.json
-
-```json
-{
-  "mcpServers": {
-    "macro-quant": {
-      "command": "python",
-      "args": ["macro_quant/main.py", "--serve"],
-      "env": {
-        "FRED_API_KEY": "your_key_here"
-      }
-    }
-  }
-}
-```
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| FRED_API_KEY | Yes (server mode) | Free API key from fred.stlouisfed.org |
-
----
-
-## Usage Examples
-
-### With Claude Code
-
-Once the MCP server is configured, you can ask Claude naturally:
+## Project structure
 
 ```
-> Show me the current yield curve and tell me if it's inverted
-
-> What's the macro picture right now? Focus on inflation and employment
-
-> Add 200 shares of TLT at 95.50 and 500 shares of HYG at 78.20 to my portfolio
-
-> Run a stress test — what happens in a stagflation scenario?
-
-> Stress test with custom scenarios: tariff war (+40bp rates, +300bp EM spreads, +40bp breakeven)
-
-> Compute metrics for a 10-year bond with a 4.5% coupon trading at 97.2
-
-> Are any alerts triggered right now?
-
-> Show me the 2s10s spread history over the last 2 years
-
-> What's the correlation between TLT and HYG over the last 6 months?
+macro_quant/
+  config.py                # validated settings (pydantic-settings)
+  main.py                  # CLI entry point (--serve / --demo / --mock)
+  data/                    # DataFeed (abstract), FRED, Yahoo
+  models/                  # instruments, yield_curve, portfolio, alerts (immutable)
+  analytics/               # fixed_income, risk, charts (stateless)
+  mcp_server/server.py     # MacroQuantMCPServer (facade + MCP protocol)
+  tests/                   # 70 pytest cases (fixed income, portfolio, risk)
 ```
 
-### Python API (direct usage)
-
-```python
-from macro_quant.data.fred import FREDDataFeed
-from macro_quant.data.yahoo import YahooDataFeed
-from macro_quant.analytics.fixed_income import FixedIncomeEngine
-from macro_quant.analytics.risk import RiskEngine, PositionRisk
-from macro_quant.models.instruments import Bond, BondETF, CouponFrequency
-from macro_quant.models.portfolio import Portfolio, Position
-from datetime import date
-
-# Yield curve
-fred = FREDDataFeed("your_api_key")
-curve = fred.get_yield_curve()
-print(curve.summary())
-print(f"2s10s: {curve.spread_2s10s} bps, slope: {curve.slope}")
-
-# Bond analytics
-bond = Bond(
-    ticker="T-10Y",
-    name="US Treasury 10Y",
-    maturity_date=date(2034, 5, 15),
-    coupon_rate=0.045,
-    coupon_frequency=CouponFrequency.SEMI,
-    price=97.2,
-)
-engine = FixedIncomeEngine()
-metrics = engine.compute_all(bond)
-print(f"YTM: {metrics.ytm:.4%}")
-print(f"Modified Duration: {metrics.modified_duration:.2f} years")
-print(f"DV01: ${metrics.dv01:.2f}")
-
-# Multi-factor stress test
-risk = RiskEngine()
-positions = [
-    PositionRisk("TLT", 104_000, dv01=-177, spread_dv01=0,
-                 risk_category="treasury", convexity_dollar=0.5*350*104_000),
-    PositionRisk("HYG", 72_000, dv01=-27.4, spread_dv01=-25.2,
-                 risk_category="hy", convexity_dollar=0.5*20*72_000),
-]
-results = risk.stress_test_v2(positions, portfolio_value=176_000)
-print(risk.format_stress_test(results))
-```
-
----
+Supporting files: `pyproject.toml` (ruff and mypy config, `dev` extras), `Dockerfile` and `.dockerignore`, `.github/workflows/ci.yml`.
 
 ## Development
 
-### Running Tests
-
 ```bash
-pytest macro_quant/tests/ -v
+pip install -e ".[dev]"          # test, lint and type tooling
+pytest macro_quant/tests/ -q     # 70 tests
+ruff check macro_quant/          # lint
+mypy                             # type-check
 ```
 
-70 tests covering fixed income calculations, portfolio metrics, and risk engine (VaR, stress tests, PCA, breakeven).
+Extending the system:
 
-### Adding a New Data Source
-
-1. Create a new class in `data/` that extends `DataFeed`
-2. Implement all abstract methods: `get_yield_curve`, `get_price`, `get_prices`, `get_history`, `get_macro_indicator`
-3. Register it in `MacroQuantMCPServer.__init__`
-
-### Adding a New MCP Tool
-
-1. Write the business logic as a method on `MacroQuantMCPServer`
-2. Add a `Tool` entry in `list_tools()`
-3. Add the dispatch mapping in `call_tool()`
-
-### Adding a New Alert Type
-
-1. Subclass `AlertCondition` in `models/alerts.py`
-2. Implement `evaluate(value, context)` and `describe()`
-3. Use it with `alert.set_condition(YourCondition(...))`
-
----
+- New data source: subclass `DataFeed`, implement its abstract methods, register it in the server.
+- New MCP tool: add a method on `MacroQuantMCPServer`, a `Tool` entry in `list_tools()`, and a mapping in `call_tool()`.
+- New alert type: subclass `AlertCondition`, implement `evaluate()` and `describe()`.
 
 ## License
 
