@@ -99,8 +99,11 @@ class TestVaR:
         # Create negatively skewed returns (fat left tail)
         normal = np.random.normal(0.0005, 0.01, 500)
         crashes = np.random.normal(-0.05, 0.02, 20)
-        returns = pd.Series(np.concatenate([normal, crashes]))
-        np.random.shuffle(returns.values)
+        # permutation() renvoie une COPIE mélangée (ne modifie pas l'original),
+        # contrairement à shuffle() qui écrit sur place et échoue sur un tableau
+        # en lecture seule (numpy >= 2 / pandas >= 3).
+        shuffled = np.random.permutation(np.concatenate([normal, crashes]))
+        returns = pd.Series(shuffled)
 
         var_param = engine.var_parametric(returns, 100_000, confidence=0.99)
         var_cf = engine.var_cornish_fisher(returns, 100_000, confidence=0.99)
