@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 import pandas as pd
 from scipy import stats
@@ -168,3 +168,144 @@ def exceptions(returns: pd.Series, var: pd.Series) -> pd.Series:
     """True on the days where the realised loss exceeded VaR (return < -VaR), aligned on var.index."""
     realised = returns.reindex(var.index)
     return (realised < -var).astype(bool)
+
+
+# ──────────────────────────────────────────────
+# Full backtest
+# ──────────────────────────────────────────────
+
+BASEL_WINDOW = 250
+
+
+@dataclass
+class MethodBacktest:
+    """Backtest verdict for one VaR method at one confidence level."""
+    method: str
+    confidence: float
+    n_obs: int
+    n_exceptions: int
+    exception_rate: float
+    kupiec: CoverageTest
+    independence: CoverageTest
+    conditional: CoverageTest
+    basel: str | None  # only at 99%, on the last 250 days
+
+    @property
+    def expected_exceptions(self) -> float:
+        return self.n_obs * (1 - self.confidence)
+
+
+@dataclass
+class BacktestResult:
+    """All verdicts for one return series, plus the series needed to chart them."""
+    label: str
+    window: int
+    start: Any  # first tested day (a date on market data, an integer on synthetic data)
+    end: Any    # last tested day
+    results: list[MethodBacktest]
+    var_series: dict[tuple[str, float], pd.Series] = field(repr=False)
+    returns: pd.Series = field(repr=False)
+
+    def describe(self) -> str:
+        header = (
+            f"VaR backtest: {self.label} | {_fmt_day(self.start)} to {_fmt_day(self.end)} | "
+            f"rolling window {self.window} days"
+        )
+        cols = (
+            f"{'method':<15}{'conf':>6}{'obs':>7}{'exc':>6}{'expected':>10}{'rate':>8}"
+            f"{'Kupiec p':>10}{'Indep p':>10}{'CC p':>9}  Basel"
+        )
+        lines = [header, cols, "-" * len(cols)]
+        for m in self.results:
+            lines.append(
+                f"{m.method:<15}{m.confidence:>6.0%}{m.n_obs:>7}{m.n_exceptions:>6}"
+                f"{m.expected_exceptions:>10.1f}{m.exception_rate:>8.2%}"
+                f"{m.kupiec.p_value:>10.3f}{m.independence.p_value:>10.3f}{m.conditional.p_value:>9.3f}"
+                f"  {m.basel or '-'}"
+            )
+        lines.append("p < 0.05 rejects the model at the 5% level.")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-safe summary (no Series)."""
+        return {
+            "label": self.label,
+            "window": self.window,
+            "start": _fmt_day(self.start),
+            "end": _fmt_day(self.end),
+            "results": [
+                {
+                    "method": m.method,
+                    "confidence": m.confidence,
+                    "n_obs": m.n_obs,
+                    "n_exceptions": m.n_exceptions,
+                    "expected_exceptions": round(m.expected_exceptions, 2),
+                    "exception_rate": round(m.exception_rate, 6),
+                    "kupiec": asdict(m.kupiec),
+                    "independence": asdict(m.independence),
+                    "conditional_coverage": asdict(m.conditional),
+                    "basel_zone": m.basel,
+                }
+                for m in self.results
+            ],
+        }
+
+
+def _fmt_day(day: Any) -> str:
+    return day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)
+
+
+def backtest_var(
+    returns: pd.Series,
+    label: str,
+    methods: Sequence[str] = METHODS,
+    confidences: Sequence[float] = (0.95, 0.99),
+    window: int = 250,
+) -> BacktestResult:
+    """
+    Rolling out-of-sample backtest of each VaR method at each confidence level.
+
+    Inputs are validated before any computation, so a bad method name or a
+    confidence outside (0, 1) fails fast with a ValueError naming the bad value.
+    """
+    for method in methods:
+        _check_method(method)
+    for c in confidences:
+        if not 0 < c < 1:
+            raise ValueError(f"confidence {c!r} must be strictly between 0 and 1")
+
+    clean = returns.dropna()
+    results: list[MethodBacktest] = []
+    var_series: dict[tuple[str, float], pd.Series] = {}
+    for method in methods:
+        for c in confidences:
+            var = rolling_var(clean, method, c, window)
+            hits = exceptions(clean, var)
+            p = 1 - c
+            n_obs, n_exc = len(hits), int(hits.sum())
+            basel = None
+            if math.isclose(c, 0.99) and n_obs >= BASEL_WINDOW:
+                basel = basel_zone(int(hits.iloc[-BASEL_WINDOW:].sum()), BASEL_WINDOW, p)
+            results.append(MethodBacktest(
+                method=method,
+                confidence=c,
+                n_obs=n_obs,
+                n_exceptions=n_exc,
+                exception_rate=n_exc / n_obs,
+                kupiec=kupiec_pof(n_obs, n_exc, p),
+                independence=christoffersen_independence(hits),
+                conditional=christoffersen_cc(hits, p),
+                basel=basel,
+            ))
+            var_series[(method, c)] = var
+
+    tested = clean.index[window:]
+    return BacktestResult(
+        label=label,
+        window=window,
+        start=tested[0],
+        end=tested[-1],
+        results=results,
+        var_series=var_series,
+        returns=clean,
+    )

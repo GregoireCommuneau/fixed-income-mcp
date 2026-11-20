@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 
 import numpy as np
@@ -9,6 +10,7 @@ import pandas as pd
 import pytest
 
 from macro_quant.analytics.backtest import (
+    backtest_var,
     basel_zone,
     christoffersen_cc,
     christoffersen_independence,
@@ -105,3 +107,63 @@ def test_nan_returns_are_dropped_not_counted():
     v = rolling_var(r, "historical", 0.95)
     assert len(v) == 298 - 250
     assert not exceptions(r, v).isna().any()
+
+
+# ──────────────────────────────────────────────
+# Full backtest on synthetic data with known properties
+# (data generation must stay exactly as is: thresholds were probed on 2026-11-20)
+# ──────────────────────────────────────────────
+
+
+def _normal_and_t3():
+    rng = np.random.default_rng(7)
+    normal = pd.Series(rng.normal(0, 0.01, 3000))
+    t3 = pd.Series(rng.standard_t(3, 3000) * 0.006)
+    return normal, t3
+
+
+def _garch():
+    rng = np.random.default_rng(7)
+    om, al, be = 1e-6, 0.1, 0.88
+    s2 = om / (1 - al - be)
+    r = np.empty(5000)
+    for i in range(5000):
+        r[i] = np.sqrt(s2) * rng.standard_normal()
+        s2 = om + al * r[i] ** 2 + be * s2
+    return pd.Series(r)
+
+
+def _get(res, method, conf):
+    return next(m for m in res.results if m.method == method and m.confidence == conf)
+
+
+def test_normal_returns_parametric_99_not_rejected():  # probe: p = 0.92
+    normal, _ = _normal_and_t3()
+    assert not _get(backtest_var(normal, "normal"), "parametric", 0.99).kupiec.reject_5pct
+
+
+def test_fat_tails_reject_parametric_99_and_historical_does_better():  # probe: 0.002 vs 0.016
+    _, t3 = _normal_and_t3()
+    res = backtest_var(t3, "t3")
+    param, hist = _get(res, "parametric", 0.99), _get(res, "historical", 0.99)
+    assert param.kupiec.p_value < 0.01
+    assert hist.kupiec.p_value > param.kupiec.p_value
+
+
+def test_volatility_clustering_rejects_independence():  # probe: p = 0.00025
+    res = backtest_var(_garch(), "garch", methods=("historical",), confidences=(0.95,))
+    assert res.results[0].independence.reject_5pct
+
+
+def test_result_is_json_safe_and_describable():
+    normal, _ = _normal_and_t3()
+    res = backtest_var(normal.iloc[:600], "x")
+    json.dumps(res.to_dict())
+    assert "parametric" in res.describe()
+    assert len(res.results) == 6
+
+
+@pytest.mark.parametrize("kw", [{"methods": ("garch",)}, {"confidences": (1.5,)}])
+def test_bad_inputs_raise(kw):
+    with pytest.raises(ValueError):
+        backtest_var(pd.Series(np.zeros(400)), "x", **kw)
