@@ -6,7 +6,7 @@
 
 **A fixed income and macro research engine that gives an AI real, auditable market data, built as a production service rather than a notebook.**
 
-Large language models reason well about markets but have no access to the numbers. MacroQuant closes that gap. It exposes a fixed income and risk engine (bond math, multi-factor stress tests, tail-aware VaR) to an AI assistant through the Model Context Protocol (MCP). The assistant can then answer a question like "what happens to my portfolio in a stagflation scenario?" with a decomposed, reproducible P&L instead of a plausible guess. The code is fully typed, linted, tested (70 tests), containerised and validated by CI.
+Large language models reason well about markets but have no access to the numbers. MacroQuant closes that gap. It exposes a fixed income and risk engine (bond math, multi-factor stress tests, tail-aware VaR) to an AI assistant through the Model Context Protocol (MCP). The assistant can then answer a question like "what happens to my portfolio in a stagflation scenario?" with a decomposed, reproducible P&L instead of a plausible guess. The code is fully typed, linted, tested (95 tests), containerised and validated by CI.
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@ Large language models reason well about markets but have no access to the number
 - [2. Approach](#2-approach)
 - [3. Design decisions](#3-design-decisions)
 - [4. Results](#4-results)
+  - [VaR backtest: results](#var-backtest-results)
 
 **Part II, reference**
 - [Installation and quick start](#installation-and-quick-start)
@@ -44,7 +45,7 @@ What is missing is a trustworthy tool the model can call: something that fetches
 Every quantitative capability is a tool the assistant can call over MCP. When the user asks a question, the model calls a tool, the tool fetches data (Treasury curve, credit spreads, breakevens, ETF prices) and runs deterministic code (pricing, duration and convexity, stress tests, VaR), and the model interprets real numbers instead of inventing them.
 
 ```
-Claude  --MCP (stdio)-->  MacroQuantMCPServer (facade, 10 tools)
+Claude  --MCP (stdio)-->  MacroQuantMCPServer (facade, 11 tools)
                                  |
               +------------------+------------------+
               |                  |                  |
@@ -139,7 +140,7 @@ The target is software engineering on a trading desk, so correct analytics in an
 |---|---|
 | Type safety | Full mypy pass, Pydantic models, catches None-handling bugs before runtime |
 | Static analysis | ruff clean (pyflakes, bugbear, import hygiene, modern syntax) |
-| Testing | 70 pytest cases over pricing, portfolio and risk logic |
+| Testing | 95 pytest cases over pricing, portfolio, risk and VaR backtest logic |
 | Observability | structured logging per module, no silently swallowed errors |
 | Configuration | validated settings (pydantic-settings); a missing key fails with a clear message, not a traceback |
 | Packaging | multi-stage Dockerfile, non-root runtime user, secrets injected at runtime |
@@ -151,6 +152,7 @@ Type checking found real bugs, several places where a `None` (a missing price, a
 
 - Grounded answers: every market figure is fetched or computed, never guessed.
 - Decomposed risk: P&L split into rate, spread, breakeven and convexity per scenario and per position.
+- Validated risk: the three VaR models are backtested out-of-sample against nine years of realised returns, with the unfavourable results stated (see below).
 - Auto-generated charts: yield curve (with 1M and 1Y overlays), stress-test bars, allocation, spread history, correlation heatmap, macro dashboard, returned as file paths in the tool responses.
 - A reproducible, tested service that runs the same code on every call, locally or in a container.
 
@@ -164,6 +166,85 @@ A typical session with the assistant:
 > Compute metrics for a 10-year bond with a 4.5% coupon trading at 97.2
 > What's the correlation between TLT and HYG over the last 6 months?
 ```
+
+### VaR backtest: results
+
+A VaR figure is a promise that can be checked: a 99% VaR should be beaten on about 1 day in 100, and those days should not come in bunches. The `backtest_var` tool replays history to check both promises for the three VaR models, each day using only the 250 days before it (no look-ahead). The theory, formulas and worked examples are in the [VaR backtest guide](docs/var-backtest-guide.md).
+
+**Setup, fixed before looking at the results.** Instruments TLT (long Treasuries), LQD (investment-grade credit), HYG (high yield) and their equal-weight portfolio rebalanced daily. Ten years of daily adjusted closes from Yahoo, run on 2026-11-20; the first 250 days only seed the window, so the tested days run from 2017-11-20 to 2026-11-19 (2,262 days). Rolling window 250 trading days, confidence 95% and 99%. Reproduce with `python scripts/var_backtest_report.py`.
+
+How to read the tables: *Kupiec p* tests whether the number of exceptions matches the promise, *Christoffersen cc p* tests the number and the clustering together; a p-value below 0.05 rejects the model. The Basel zone is the regulator's traffic light on the last 250 days at 99%.
+
+**Equal-weight TLT+LQD+HYG**, 2017-11-20 to 2026-11-19
+
+| Method | Conf. | Exceptions | Expected | Rate | Kupiec p | Christoffersen cc p | Basel (last 250 d) |
+|---|---|---|---|---|---|---|---|
+| Historical | 95% | 135 | 113.1 | 5.97% | 0.040 | 0.001 | - |
+| Historical | 99% | 46 | 22.6 | 2.03% | 0.000 | 0.000 | yellow |
+| Parametric (normal) | 95% | 129 | 113.1 | 5.70% | 0.133 | 0.000 | - |
+| Parametric (normal) | 99% | 49 | 22.6 | 2.17% | 0.000 | 0.000 | yellow |
+| Cornish-Fisher | 95% | 126 | 113.1 | 5.57% | 0.221 | 0.003 | - |
+| Cornish-Fisher | 99% | 31 | 22.6 | 1.37% | 0.094 | 0.000 | green |
+
+![Equal-weight portfolio: daily returns against the 99% historical VaR, exceptions in red](docs/img/var_backtest_portfolio.png)
+
+<details>
+<summary>TLT</summary>
+
+**TLT**, 2017-11-20 to 2026-11-19
+
+| Method | Conf. | Exceptions | Expected | Rate | Kupiec p | Christoffersen cc p | Basel (last 250 d) |
+|---|---|---|---|---|---|---|---|
+| Historical | 95% | 128 | 113.1 | 5.66% | 0.159 | 0.083 | - |
+| Historical | 99% | 32 | 22.6 | 1.41% | 0.062 | 0.006 | green |
+| Parametric (normal) | 95% | 113 | 113.1 | 5.00% | 0.992 | 0.213 | - |
+| Parametric (normal) | 99% | 32 | 22.6 | 1.41% | 0.062 | 0.006 | yellow |
+| Cornish-Fisher | 95% | 123 | 113.1 | 5.44% | 0.346 | 0.170 | - |
+| Cornish-Fisher | 99% | 29 | 22.6 | 1.28% | 0.196 | 0.009 | green |
+
+</details>
+
+<details>
+<summary>LQD</summary>
+
+**LQD**, 2017-11-20 to 2026-11-19
+
+| Method | Conf. | Exceptions | Expected | Rate | Kupiec p | Christoffersen cc p | Basel (last 250 d) |
+|---|---|---|---|---|---|---|---|
+| Historical | 95% | 129 | 113.1 | 5.70% | 0.133 | 0.001 | - |
+| Historical | 99% | 39 | 22.6 | 1.72% | 0.002 | 0.000 | green |
+| Parametric (normal) | 95% | 118 | 113.1 | 5.22% | 0.639 | 0.000 | - |
+| Parametric (normal) | 99% | 43 | 22.6 | 1.90% | 0.000 | 0.000 | green |
+| Cornish-Fisher | 95% | 126 | 113.1 | 5.57% | 0.221 | 0.000 | - |
+| Cornish-Fisher | 99% | 28 | 22.6 | 1.24% | 0.273 | 0.001 | green |
+
+</details>
+
+<details>
+<summary>HYG</summary>
+
+**HYG**, 2017-11-20 to 2026-11-19
+
+| Method | Conf. | Exceptions | Expected | Rate | Kupiec p | Christoffersen cc p | Basel (last 250 d) |
+|---|---|---|---|---|---|---|---|
+| Historical | 95% | 134 | 113.1 | 5.92% | 0.050 | 0.000 | - |
+| Historical | 99% | 41 | 22.6 | 1.81% | 0.000 | 0.000 | green |
+| Parametric (normal) | 95% | 125 | 113.1 | 5.53% | 0.259 | 0.000 | - |
+| Parametric (normal) | 99% | 60 | 22.6 | 2.65% | 0.000 | 0.000 | green |
+| Cornish-Fisher | 95% | 142 | 113.1 | 6.28% | 0.007 | 0.000 | - |
+| Cornish-Fisher | 99% | 30 | 22.6 | 1.33% | 0.137 | 0.008 | green |
+
+</details>
+
+**What the numbers say.**
+
+- *At 95%, every model gets the count roughly right.* Exception rates sit between 5.0% and 6.3%, and Kupiec rejects only 3 of the 12 cases, one of them by a hair (HYG historical, p = 0.0498, rounded to 0.050 in the table). The middle of the distribution is well estimated by all three methods.
+- *At 99%, the normal distribution fails on credit.* Parametric VaR is beaten 2.65% of the days on HYG (60 exceptions for 23 expected) and 1.90% on LQD. Credit returns have fat tails; a normal model puts too little probability out there. On TLT, whose returns are closer to normal, it holds (p = 0.062).
+- *Historical VaR does not fix it at 99%.* It fails Kupiec on LQD, HYG and the portfolio. With 250 days, the 1% quantile rests on two or three observations, so the estimate is noisy and lags any change in regime.
+- *Cornish-Fisher is the only model that passes the count test everywhere at 99%* (Kupiec p from 0.094 to 0.273). Correcting the normal quantile for skewness and kurtosis is enough to get the frequency of large losses right.
+- *No model passes the clustering test at 99%.* Christoffersen conditional coverage rejects all twelve 99% cases, Cornish-Fisher included. The chart shows why: exceptions arrive in bursts (March 2020, the 2022 rate shock, April 2025), because a flat 250-day window weights a calm day a year ago the same as yesterday. After the March 2020 burst the VaR line then stays wide for exactly 250 days and drops abruptly in March 2021, when the crisis leaves the window.
+
+**Verdict.** The tail shape problem is solved by Cornish-Fisher; the timing problem is not solved by any of the three models, because none of them reacts to volatility regimes. That points to the next step: a VaR that weights recent days more (EWMA-scaled or filtered historical simulation), backtested with this same tool.
 
 ---
 
@@ -218,7 +299,7 @@ The secret is passed at runtime with `-e` and never baked into the image.
 
 ## MCP tools
 
-Ten tools are exposed to the assistant. Tools that produce a figure also return a `chart` path to a generated PNG.
+Eleven tools are exposed to the assistant. Tools that produce a figure also return a `chart` path to a generated PNG.
 
 | Tool | Purpose |
 |------|---------|
@@ -232,6 +313,7 @@ Ten tools are exposed to the assistant. Tools that produce a figure also return 
 | `get_spread_history` | Spread between two FRED series with percentile ranking |
 | `get_correlation_matrix` | Correlation of ETF daily returns (Ledoit-Wolf shrinkage when available) |
 | `add_etf_position` | Add an ETF position (auto-enriched from Yahoo), persisted to disk |
+| `backtest_var` | Out-of-sample backtest of the three VaR models (Kupiec, Christoffersen, Basel traffic light) with chart |
 
 Selected parameters:
 
@@ -239,6 +321,7 @@ Selected parameters:
 - `stress_test_portfolio`: `custom_scenarios`, either simple `{name: bps}` (rate-only) or multi-factor `{name: {rates_bps, ig_spread_bps, hy_spread_bps, em_spread_bps, breakeven_bps}}`.
 - `get_correlation_matrix`: `tickers` (default 8 bond ETFs), `days` (default 252).
 - `get_spread_history`: `series_a`, `series_b` (FRED IDs), `days` (default 365).
+- `backtest_var`: `tickers` (one ETF, or several for their equal-weight portfolio; default TLT, LQD, HYG), `years` (10), `confidences` ([0.95, 0.99]), `window` (250).
 
 ## Data sources
 
@@ -283,9 +366,11 @@ macro_quant/
   main.py                  # CLI entry point (--serve / --demo / --mock)
   data/                    # DataFeed (abstract), FRED, Yahoo
   models/                  # instruments, yield_curve, portfolio, alerts (immutable)
-  analytics/               # fixed_income, risk, charts (stateless)
+  analytics/               # fixed_income, risk, backtest, charts (stateless)
   mcp_server/server.py     # MacroQuantMCPServer (facade + MCP protocol)
-  tests/                   # 70 pytest cases (fixed income, portfolio, risk)
+  tests/                   # 95 pytest cases (fixed income, portfolio, risk, backtest)
+scripts/var_backtest_report.py  # reproduces the VaR backtest results
+docs/var-backtest-guide.md      # VaR backtest theory, formulas, worked examples
 ```
 
 Supporting files: `pyproject.toml` (ruff and mypy config, `dev` extras), `Dockerfile` and `.dockerignore`, `.github/workflows/ci.yml`.
@@ -294,7 +379,7 @@ Supporting files: `pyproject.toml` (ruff and mypy config, `dev` extras), `Docker
 
 ```bash
 pip install -e ".[dev]"          # test, lint and type tooling
-pytest macro_quant/tests/ -q     # 70 tests
+pytest macro_quant/tests/ -q     # 95 tests
 ruff check macro_quant/          # lint
 mypy                             # type-check
 ```
