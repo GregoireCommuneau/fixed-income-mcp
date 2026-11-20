@@ -40,19 +40,10 @@ $p$ is the **exception probability**: 5% at 95% confidence, 1% at 99%. In MacroQ
 
 Graphically, VaR is a point on the left tail of the distribution of returns, the point that leaves exactly $p$ of the probability to its left:
 
-```
-            probability of each daily return
-                        ___
-                      /     \
-                    /         \
-                  /             \
-        ____ ___/                 \___ ____
-       |////|                              
-  -----+----+-----------0------------------->  return
-       |  -VaR
-       |
-   area p = 1% (the bad days)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/var_tail-dark.svg">
+  <img alt="Normal distribution of daily returns with the left 1% shaded; VaR 99% sits at -2.33%" src="img/guide/var_tail-light.svg" width="720">
+</picture>
 
 The entire difficulty is that we do not know this distribution. We only see the past, and each VaR model is a different guess at the shape of the left tail.
 
@@ -88,7 +79,12 @@ $$
 \text{VaR} = -(0 + (-2.326) \times 0.01) = 0.02326 = 2.33\%
 $$
 
-On \$1,000,000 that is \$23,263. Smooth and stable, but if real returns have **fat tails** (big moves more frequent than the bell curve says, which is the rule in credit markets), this VaR is too small and gets beaten too often.
+On \$1,000,000 that is \$23,263. Smooth and stable, but if real returns have **fat tails** (big moves more frequent than the bell curve says, which is the rule in credit markets), this VaR is too small and gets beaten too often. The figure compares a normal distribution with a fat-tailed one of exactly the same volatility: beyond the normal 99% VaR, the fat-tailed market puts 1.51% of days instead of 1%, so a normal VaR would be beaten half as often again as it promises.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/fat_tails-dark.svg">
+  <img alt="Left tail of a normal and a fat-tailed distribution with the same volatility; beyond the normal VaR the fat-tailed one leaves 1.51% of days instead of 1%" src="img/guide/fat_tails-light.svg" width="720">
+</picture>
 
 ### 2.3 Cornish-Fisher VaR: bend the bell curve
 
@@ -132,7 +128,21 @@ A VaR is a **falsifiable promise**. A 99% VaR promises two things:
 1. **Right frequency.** The loss exceeds VaR on about 1% of days. Not 2%, but not 0.1% either: a VaR that is never beaten is too conservative and ties up capital for nothing.
 2. **No clustering.** The bad days are spread out at random. If an exception today makes one tomorrow more likely, the model is too slow to react when markets change, which is exactly when you need it.
 
-A **backtest** checks both promises against what actually happened.
+A **backtest** checks both promises against what actually happened. The whole pipeline, as `backtest_var` runs it:
+
+```mermaid
+flowchart LR
+    R[Daily returns] --> W["Rolling window<br/>days t-250 to t-1"]
+    W --> V["VaR forecast for day t<br/>historical, parametric<br/>or Cornish-Fisher"]
+    V --> X{"Loss on day t<br/>beyond VaR?"}
+    R --> X
+    X -->|"yes: 1, no: 0"| H[Hit sequence]
+    H --> K["Kupiec<br/>right number?"]
+    H --> C["Christoffersen<br/>no clusters?"]
+    K --> CC[Conditional coverage]
+    C --> CC
+    H --> B["Basel zone<br/>last 250 days, 99%"]
+```
 
 ### 3.1 Exceptions and the hit sequence
 
@@ -150,14 +160,10 @@ The VaR for day $t$ must be computed only from returns **strictly before** $t$. 
 
 `rolling_var(returns, method, confidence, window=250)` slides a 250-day window one day at a time:
 
-```
-day:      1 ............... 250 | 251
-          [ window for day 251 ]  ^ forecast VaR(251), then compare with r(251)
-
-day:      2 ................ 251 | 252
-           [ window for day 252 ]  ^ forecast VaR(252), compare with r(252)
-...
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/rolling_window-dark.svg">
+  <img alt="Three rows of day cells: for each forecast, the 250 previous days form the window, the next day is tested, later days are never seen" src="img/guide/rolling_window-light.svg" width="720">
+</picture>
 
 The first 250 days only seed the window and are never tested. A test in the suite (`test_rolling_var_has_no_look_ahead`) changes every return from day 300 on and checks that the VaR forecasts up to day 300 do not move by a single digit.
 
@@ -225,6 +231,11 @@ CoverageTest(statistic=1.956809788230622, p_value=0.1618549171960387, reject_5pc
 
 The p-value for every possible count on 250 days at 99% (2.5 expected):
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/kupiec_pvalues-dark.svg">
+  <img alt="Kupiec p-value for 0 to 10 exceptions over 250 days; 0 and 7 or more are rejected" src="img/guide/kupiec_pvalues-light.svg" width="720">
+</picture>
+
 | Exceptions | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Kupiec p | **0.025** | 0.278 | 0.742 | 0.758 | 0.381 | 0.162 | 0.059 | **0.019** | **0.005** | **0.001** | **0.000** |
@@ -234,6 +245,13 @@ Two things to notice. **Zero exceptions is rejected** ($p = 0.025$): a model tha
 ### 5.4 How much data does Kupiec need?
 
 That last point is a real limitation. Suppose a model is actually wrong by a factor of two: it is beaten 2% of the time instead of 1%. How often would Kupiec catch it? Computed exactly from the binomial distribution:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/kupiec_power-dark.svg">
+  <img alt="Probability that Kupiec rejects a 99% VaR that is really beaten 2% of the time, against the number of days tested: 24% at 250 days, 78% at 1,000, 98% at 2,262" src="img/guide/kupiec_power-light.svg" width="720">
+</picture>
+
+The curve climbs in steps rather than smoothly because exception counts are whole numbers: the rejection threshold jumps from one count to the next as the sample grows.
 
 | Days tested | Chance of catching the bad model (power) | False alarm rate on a correct model |
 |---|---|---|
@@ -288,6 +306,13 @@ When a cell is empty (for example no exception was ever followed by another, $n_
 
 A 30-day hit sequence with two pairs of back-to-back exceptions:
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/hit_sequence-dark.svg">
+  <img alt="Thirty day cells with exceptions on days 11, 12, 16 and 17, forming two back-to-back pairs" src="img/guide/hit_sequence-light.svg" width="720">
+</picture>
+
+The same sequence as zeros and ones:
+
 ```
 0 0 0 0 0 0 0 0 0 0 | 1 1 0 0 0 1 1 0 0 0 | 0 0 0 0 0 0 0 0 0 0
 ```
@@ -341,6 +366,11 @@ If the model is correct, each day is an independent coin flip with probability 1
 | Probability of exactly that many | 8.1% | 20.5% | 25.7% | 21.5% | 13.4% | 6.7% | 2.7% | 1.0% | 0.3% | 0.08% | 0.02% |
 | Cumulative $P(X \leq x)$ | 8.1% | 28.6% | 54.3% | 75.8% | 89.2% | 95.9% | 98.6% | 99.6% | 99.9% | 99.975% | 99.995% |
 | Zone | green | green | green | green | green | yellow | yellow | yellow | yellow | yellow | red |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/guide/basel_zones-dark.svg">
+  <img alt="Binomial probability of 0 to 12 exceptions in 250 days for a correct 99% VaR, coloured by Basel zone: green 0 to 4, yellow 5 to 9, red 10 or more" src="img/guide/basel_zones-light.svg" width="720">
+</picture>
 
 So: **0 to 4 green, 5 to 9 yellow, 10 or more red**. In the Basel framework (1996, carried into Basel II) the zone raises the multiplier applied to VaR when computing market-risk capital, from 3 in the green zone up to 4 in the red zone. (Those multiplier values come from the regulatory text, not from this project's code.)
 
@@ -458,7 +488,7 @@ pip install -e ".[dev]"
 python scripts/var_backtest_report.py      # needs network (Yahoo)
 ```
 
-It prints one Markdown table per instrument and writes `docs/img/var_backtest_portfolio.png`. The setup (instruments, 10 years, window 250, 95% and 99%) is fixed in the script on purpose: changing it until the results look good would defeat the point of a backtest.
+It prints one Markdown table per instrument and writes `docs/img/var_backtest_portfolio.png`. The figures of this guide come from `python scripts/guide_figures.py` (offline): every number they draw is computed by the project's code or by scipy's exact distributions. The setup (instruments, 10 years, window 250, 95% and 99%) is fixed in the script on purpose: changing it until the results look good would defeat the point of a backtest.
 
 ### 10.4 Running the tests
 
