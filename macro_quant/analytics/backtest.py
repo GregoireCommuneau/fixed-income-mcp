@@ -26,6 +26,8 @@ from typing import Literal
 import pandas as pd
 from scipy import stats
 
+from macro_quant.analytics.risk import RiskEngine
+
 # ──────────────────────────────────────────────
 # Coverage statistics
 # ──────────────────────────────────────────────
@@ -123,3 +125,46 @@ def basel_zone(n_exceptions: int, n_obs: int = 250, p: float = 0.01) -> Literal[
     if cdf >= 0.9999:
         return "red"
     return "yellow"
+
+
+# ──────────────────────────────────────────────
+# Rolling out-of-sample VaR
+# ──────────────────────────────────────────────
+
+METHODS: tuple[str, ...] = ("historical", "parametric", "cornish_fisher")
+
+
+def _check_method(method: str) -> None:
+    if method not in METHODS:
+        raise ValueError(f"unknown VaR method {method!r}; expected one of {', '.join(METHODS)}")
+
+
+def rolling_var(returns: pd.Series, method: str, confidence: float, window: int = 250) -> pd.Series:
+    """
+    One-day VaR for each day t, estimated from the `window` returns strictly before t.
+
+    The returns of day t never enter its own forecast: that is what makes the
+    backtest out-of-sample. NaN returns (data gaps) are dropped first. VaR is a
+    positive loss fraction, as in VaRResult.var_pct. The result is indexed by the
+    days that have a full window behind them: returns.dropna().index[window:].
+    """
+    _check_method(method)
+    clean = returns.dropna()
+    if len(clean) < window + 1:
+        raise ValueError(
+            f"window of {window} days exceeds the {len(clean)} available observations "
+            f"(need at least {window + 1})"
+        )
+    engine = RiskEngine()
+    estimator = getattr(engine, f"var_{method}")
+    values = [
+        estimator(clean.iloc[t - window:t], 1.0, confidence).var_pct
+        for t in range(window, len(clean))
+    ]
+    return pd.Series(values, index=clean.index[window:], name=f"var_{method}_{confidence:g}")
+
+
+def exceptions(returns: pd.Series, var: pd.Series) -> pd.Series:
+    """True on the days where the realised loss exceeded VaR (return < -VaR), aligned on var.index."""
+    realised = returns.reindex(var.index)
+    return (realised < -var).astype(bool)
