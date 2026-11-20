@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,9 +17,12 @@ from macro_quant.analytics.backtest import (
     christoffersen_independence,
     exceptions,
     kupiec_pof,
+    portfolio_returns,
     rolling_var,
 )
+from macro_quant.analytics.charts import chart_var_backtest
 from macro_quant.analytics.risk import RiskEngine
+from macro_quant.mcp_server.server import MacroQuantMCPServer
 
 # ──────────────────────────────────────────────
 # Coverage statistics (reference values computed by hand on 2026-11-20)
@@ -167,3 +171,33 @@ def test_result_is_json_safe_and_describable():
 def test_bad_inputs_raise(kw):
     with pytest.raises(ValueError):
         backtest_var(pd.Series(np.zeros(400)), "x", **kw)
+
+
+# ──────────────────────────────────────────────
+# Portfolio returns, chart and MCP tool
+# ──────────────────────────────────────────────
+
+
+def test_portfolio_returns_aligns_on_common_dates():
+    idx = pd.date_range("2024-01-01", periods=5)
+    a = pd.Series([100, 101, 102, 103, 104.0], index=idx)
+    b = pd.Series([50, 51, 52.0], index=idx[2:])
+    r = portfolio_returns({"A": a, "B": b})
+    assert list(r.index) == list(idx[3:]) and not r.isna().any()
+
+
+def test_chart_is_written():
+    normal, _ = _normal_and_t3()
+    path = chart_var_backtest(backtest_var(normal.iloc[:600], "x"), "historical", 0.99)
+    assert Path(path).exists()
+
+
+def test_server_backtest_var_with_fake_feed(monkeypatch):
+    srv = MacroQuantMCPServer(fred_api_key="dummy")  # constructor makes no network call
+    idx = pd.bdate_range("2015-01-01", periods=800)
+    prices = 100 * np.exp(np.cumsum(np.random.default_rng(4).normal(0, 0.01, 800)))
+    fake = pd.DataFrame({"close": prices}, index=idx)
+    monkeypatch.setattr(srv._yahoo, "get_history", lambda *a, **k: fake)
+    out = srv.backtest_var(tickers=["TLT"], years=3)
+    assert {"results", "summary", "chart"} <= out.keys()
+    json.dumps(out, default=str)

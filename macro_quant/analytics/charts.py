@@ -9,7 +9,7 @@ Images are stored in the charts/ folder of the project.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import matplotlib
 
@@ -18,6 +18,9 @@ matplotlib.use("Agg")  # Non-interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
+
+if TYPE_CHECKING:
+    from macro_quant.analytics.backtest import BacktestResult
 
 # ── Config ──
 
@@ -585,3 +588,43 @@ def chart_correlation_matrix(
 
     fig.tight_layout()
     return _save(fig, "correlation_matrix")
+
+
+# ──────────────────────────────────────────
+# 7. VaR backtest
+# ──────────────────────────────────────────
+
+def chart_var_backtest(result: BacktestResult, method: str, confidence: float) -> str:
+    """
+    Realised daily returns (bars) against the -VaR line for one method and confidence.
+    Exceptions, the days the loss went through the line, are marked in red.
+    """
+    var = result.var_series[(method, confidence)]
+    rets = result.returns.reindex(var.index)
+    hits = rets < -var
+    stats = next(m for m in result.results if m.method == method and m.confidence == confidence)
+
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+    _apply_style(ax, fig)
+
+    ax.bar(var.index, rets.values, width=1.0, color=COLORS["neutral"], alpha=0.6, label="Daily return")
+    ax.plot(var.index, -var.values, color=COLORS["accent"], linewidth=1.3,
+            label=f"-VaR {confidence:.0%} ({method.replace('_', '-')})")
+    ax.scatter(var.index[hits.values], rets[hits].values, color=COLORS["negative"], s=18, zorder=3,
+               label=f"Exceptions: {stats.n_exceptions} (expected {stats.expected_exceptions:.0f})")
+
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=1))
+    ax.axhline(0, color=COLORS["grid"], linewidth=0.8)
+    ax.set_ylabel("Daily return")
+    ax.set_title(
+        f"VaR backtest: {result.label}  |  Kupiec p = {stats.kupiec.p_value:.3f}, "
+        f"Christoffersen cc p = {stats.conditional.p_value:.3f}",
+        fontsize=12, fontweight="bold", pad=12,
+    )
+    legend = ax.legend(loc="lower left", fontsize=9, facecolor=COLORS["surface"], edgecolor=COLORS["grid"])
+    for text in legend.get_texts():
+        text.set_color(COLORS["text"])
+
+    fig.tight_layout()
+    safe_label = "".join(c if c.isalnum() else "_" for c in result.label).strip("_").lower()
+    return _save(fig, f"var_backtest_{safe_label}_{method}_{round(confidence * 100)}")

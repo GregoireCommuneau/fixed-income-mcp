@@ -309,3 +309,14 @@ def backtest_var(
         var_series=var_series,
         returns=clean,
     )
+
+
+def portfolio_returns(closes: dict[str, pd.Series]) -> pd.Series:
+    """
+    Daily returns of an equal-weight portfolio rebalanced every day: the mean of the
+    tickers' daily returns, on the dates where every ticker has a return (inner join),
+    so a gap in one ticker never shows up as a zero or NaN return.
+    """
+    rets = [s.pct_change().rename(t) for t, s in closes.items()]
+    joined = pd.concat(rets, axis=1, join="inner").dropna()
+    return joined.mean(axis=1).rename("equal_weight")
