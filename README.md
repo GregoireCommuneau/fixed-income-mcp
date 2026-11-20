@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/GregoireCommuneau/fixed-income-mcp/actions/workflows/ci.yml)
 
+> A quick side project, put together on a corner of the table: the scope is small, the engineering is real.
+
 **A fixed income and macro research engine that gives an AI real, auditable market data, built as a production service rather than a notebook.**
 
 Large language models reason well about markets but have no access to the numbers. MacroQuant closes that gap. It exposes a fixed income and risk engine (bond math, multi-factor stress tests, tail-aware VaR) to an AI assistant through the Model Context Protocol (MCP). The assistant can then answer a question like "what happens to my portfolio in a stagflation scenario?" with a decomposed, reproducible P&L instead of a plausible guess. The code is fully typed, linted, tested (70 tests), containerised and validated by CI.
