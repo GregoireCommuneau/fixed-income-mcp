@@ -65,7 +65,9 @@ also the first way for the assistant to reach a VaR figure.
 - Tests in `macro_quant/tests/test_backtest.py`:
   - Kupiec and Christoffersen statistics against hand-computed values.
   - i.i.d. normal returns: parametric VaR at 99% is not rejected.
-  - Student-t (3 dof) returns: parametric VaR at 99% is rejected; historical is not.
+  - Student-t (3 dof) returns: parametric VaR at 99% is rejected (p < 0.01). Probe on
+    2026-11-20: historical at 99% on a 250-day window is also rejected (p = 0.016, only
+    2.5 tail points per window), so the test only asserts it does better than parametric.
   - Volatility clustering (GARCH-simulated): Christoffersen independence rejects a
     flat-window VaR.
   - No look-ahead: changing returns on or after day t does not change VaR for day t.
