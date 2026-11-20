@@ -131,7 +131,7 @@ A VaR is a **falsifiable promise**. A 99% VaR promises two things:
 A **backtest** checks both promises against what actually happened. The whole pipeline, as `backtest_var` runs it:
 
 ```mermaid
-flowchart LR
+flowchart TD
     R[Daily returns] --> W["Rolling window<br/>days t-250 to t-1"]
     W --> V["VaR forecast for day t<br/>historical, parametric<br/>or Cornish-Fisher"]
     V --> X{"Loss on day t<br/>beyond VaR?"}
@@ -149,7 +149,7 @@ flowchart LR
 A day is an **exception** (also called a breach or violation) when the realised loss is larger than the VaR forecast for that day:
 
 $$
-I_t = \begin{cases} 1 & \text{if } r_t < -\text{VaR}_t \\ 0 & \text{otherwise} \end{cases}
+I_t = 1 \ \text{ if } r_t < -\text{VaR}_t, \qquad I_t = 0 \ \text{ otherwise}
 $$
 
 The list $I_1, I_2, \dots, I_n$ of zeros and ones is the **hit sequence**. Everything that follows is a test on this sequence. In code: `exceptions(returns, var)` returns it as a boolean Series.
