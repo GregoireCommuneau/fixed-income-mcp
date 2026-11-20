@@ -132,6 +132,7 @@ def basel_zone(n_exceptions: int, n_obs: int = 250, p: float = 0.01) -> Literal[
 # ──────────────────────────────────────────────
 
 METHODS: tuple[str, ...] = ("historical", "parametric", "cornish_fisher")
+MIN_WINDOW = 30  # Cornish-Fisher needs 4+ points for kurtosis; below ~30 no estimate is meaningful
 
 
 def _check_method(method: str) -> None:
@@ -149,6 +150,8 @@ def rolling_var(returns: pd.Series, method: str, confidence: float, window: int 
     days that have a full window behind them: returns.dropna().index[window:].
     """
     _check_method(method)
+    if window < MIN_WINDOW:
+        raise ValueError(f"window {window} is too short: at least {MIN_WINDOW} days are needed for a VaR estimate")
     clean = returns.dropna()
     if len(clean) < window + 1:
         raise ValueError(
@@ -161,7 +164,11 @@ def rolling_var(returns: pd.Series, method: str, confidence: float, window: int 
         estimator(clean.iloc[t - window:t], 1.0, confidence).var_pct
         for t in range(window, len(clean))
     ]
-    return pd.Series(values, index=clean.index[window:], name=f"var_{method}_{confidence:g}")
+    var = pd.Series(values, index=clean.index[window:], name=f"var_{method}_{confidence:g}")
+    if var.isna().any():
+        # A NaN VaR is never beaten, so it would silently count as "no exception".
+        raise ValueError(f"{method} VaR is undefined on {int(var.isna().sum())} days (degenerate window)")
+    return var
 
 
 def exceptions(returns: pd.Series, var: pd.Series) -> pd.Series:

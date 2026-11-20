@@ -201,3 +201,9 @@ def test_server_backtest_var_with_fake_feed(monkeypatch):
     out = srv.backtest_var(tickers=["TLT"], years=3)
     assert {"results", "summary", "chart"} <= out.keys()
     json.dumps(out, default=str)
+
+
+@pytest.mark.parametrize("window", [-5, 0, 1])
+def test_too_small_window_raises_naming_the_value(window):
+    with pytest.raises(ValueError, match=f"window {window}"):
+        backtest_var(pd.Series(np.random.default_rng(5).normal(0, 0.01, 400)), "x", window=window)
