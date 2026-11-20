@@ -56,7 +56,7 @@ All three live in `macro_quant/analytics/risk.py` (`RiskEngine.var_historical`, 
 Sort the past returns from worst to best and read off the one that has 1% of the observations below it. No assumption about the shape of the distribution.
 
 $$
-\text{VaR}_{\text{hist}} = -\,Q_{p}(r_1, \dots, r_n)
+\text{VaR}_{\text{hist}} = - Q_{p}(r_1, \dots, r_n)
 $$
 
 where $Q_p$ is the empirical $p$-quantile (numpy's `percentile`, which interpolates linearly between neighbours).
@@ -68,18 +68,18 @@ where $Q_p$ is the empirical $p$-quantile (numpy's `percentile`, which interpola
 Assume returns follow a normal distribution, estimate its mean $\mu$ and standard deviation $\sigma$ from the window, and read the quantile from the normal table:
 
 $$
-\text{VaR}_{\text{param}} = -(\mu + z_p\,\sigma)
+\text{VaR}_{\text{param}} = -(\mu + z_p \sigma)
 $$
 
 $z_p$ is the standard normal quantile: $z_{0.05} = -1.645$, $z_{0.01} = -2.326$.
 
-**Example.** $\mu = 0$, $\sigma = 1\%$ daily, 99% confidence:
+**Example.** $\mu = 0$, $\sigma$ = 1% daily, 99% confidence:
 
 $$
-\text{VaR} = -(0 + (-2.326) \times 0.01) = 0.02326 = 2.33\%
+\text{VaR} = -(0 + (-2.326) \times 0.01) = 0.02326
 $$
 
-On \$1,000,000 that is \$23,263. Smooth and stable, but if real returns have **fat tails** (big moves more frequent than the bell curve says, which is the rule in credit markets), this VaR is too small and gets beaten too often. The figure compares a normal distribution with a fat-tailed one of exactly the same volatility: beyond the normal 99% VaR, the fat-tailed market puts 1.51% of days instead of 1%, so a normal VaR would be beaten half as often again as it promises.
+That is 2.33% of the portfolio: on \$1,000,000, \$23,263. Smooth and stable, but if real returns have **fat tails** (big moves more frequent than the bell curve says, which is the rule in credit markets), this VaR is too small and gets beaten too often. The figure compares a normal distribution with a fat-tailed one of exactly the same volatility: beyond the normal 99% VaR, the fat-tailed market puts 1.51% of days instead of 1%, so a normal VaR would be beaten half as often again as it promises.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/guide/fat_tails-dark.svg">
@@ -94,12 +94,12 @@ Keep the parametric formula but replace $z_p$ by a corrected quantile that accou
 - **Excess kurtosis** $K$: fat tails. 0 for a normal distribution, positive when extreme days are more frequent.
 
 $$
-z_{cf} = z + \frac{(z^2-1)\,S}{6} + \frac{(z^3-3z)\,K}{24} - \frac{(2z^3-5z)\,S^2}{36}
+z_{cf} = z + \frac{(z^2-1) S}{6} + \frac{(z^3-3z) K}{24} - \frac{(2z^3-5z) S^2}{36}
 \qquad
-\text{VaR}_{cf} = -(\mu + z_{cf}\,\sigma)
+\text{VaR}_{cf} = -(\mu + z_{cf} \sigma)
 $$
 
-**Example.** Same $\mu = 0$, $\sigma = 1\%$, 99%, but now $S = -0.5$ and $K = 3$ (typical of a credit ETF):
+**Example.** Same $\mu = 0$, $\sigma$ = 1%, 99%, but now $S = -0.5$ and $K = 3$ (typical of a credit ETF):
 
 | Term | Value |
 |---|---|
@@ -149,7 +149,7 @@ flowchart TD
 A day is an **exception** (also called a breach or violation) when the realised loss is larger than the VaR forecast for that day:
 
 $$
-I_t = 1 \ \text{ if } r_t < -\text{VaR}_t, \qquad I_t = 0 \ \text{ otherwise}
+I_t = 1 \quad \text{if } r_t < -\text{VaR}_t, \qquad I_t = 0 \quad \text{otherwise}
 $$
 
 The list $I_1, I_2, \dots, I_n$ of zeros and ones is the **hit sequence**. Everything that follows is a test on this sequence. In code: `exceptions(returns, var)` returns it as a boolean Series.
@@ -357,9 +357,9 @@ Banks regulated under the Basel framework must backtest their 99% one-day VaR on
 
 If the model is correct, each day is an independent coin flip with probability 1% of an exception, so the count follows a **binomial distribution** $\text{Bin}(250, 0.01)$. Its cumulative probability $P(X \leq x)$ decides the zone:
 
-- **green** if $P(X \leq x) < 95\%$
+- **green** if $P(X \leq x)$ is below 95%
 - **yellow** if between 95% and 99.99%
-- **red** if $P(X \leq x) \geq 99.99\%$
+- **red** if $P(X \leq x)$ is 99.99% or more
 
 | Exceptions in 250 days | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
