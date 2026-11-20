@@ -579,7 +579,7 @@ def chart_correlation_matrix(
     cbar.ax.tick_params(colors=COLORS["text"], labelsize=8)
     if cbar.outline is not None:
         # False positive in the matplotlib stubs on Spine.set_edgecolor (valid method).
-        cbar.outline.set_edgecolor(COLORS["grid"])  # type: ignore[operator]
+        cbar.outline.set_edgecolor(COLORS["grid"])
 
     ax.set_title(f"Return Correlation Matrix  ({period_days}d)", fontsize=13, fontweight="bold", pad=15)
 
