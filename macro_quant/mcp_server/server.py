@@ -2,7 +2,7 @@
 mcp_server/server.py
 MacroQuantMCPServer — exposes all financial tools via the MCP protocol.
 
-Tools exposed to Claude (10 tools):
+Tools exposed to Claude (11 tools):
   - get_yield_curve          → current yield curve + chart PNG
   - get_macro_dashboard      → FRED macro indicators (CPI/PCE as YoY%) + chart PNG
   - get_bond_etf_universe    → bond ETFs enriched via Yahoo
@@ -13,6 +13,7 @@ Tools exposed to Claude (10 tools):
   - compute_bond_metrics     → YTM / Duration / Convexity for a bond
   - get_correlation_matrix   → correlations between ETFs
   - add_etf_position         → add an ETF to the portfolio (Yahoo enriched)
+  - backtest_var             → VaR backtest (Kupiec, Christoffersen, Basel) + chart PNG
 
 Each tool returning a chart includes a "chart" field with the absolute
 path of the PNG generated in the project's charts/ folder.
@@ -26,12 +27,14 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from macro_quant.analytics.backtest import METHODS, backtest_var, portfolio_returns
 from macro_quant.analytics.charts import (
     chart_correlation_matrix,
     chart_macro_dashboard,
     chart_portfolio_allocation,
     chart_spread_history,
     chart_stress_test,
+    chart_var_backtest,
     chart_yield_curve,
 )
 from macro_quant.analytics.fixed_income import FixedIncomeEngine, YieldCurveAnalytics
@@ -557,6 +560,39 @@ class MacroQuantMCPServer:
             "chart": chart_path,
         }
 
+    def backtest_var(
+        self,
+        tickers: list[str] | None = None,
+        years: int = 10,
+        confidences: list[float] | None = None,
+        window: int = 250,
+    ) -> dict[str, Any]:
+        """
+        [MCP TOOL] Out-of-sample backtest of the historical, parametric and
+        Cornish-Fisher VaR models on realised daily returns.
+        One ticker: that ETF. Several tickers: their equal-weight portfolio,
+        rebalanced daily. Default: TLT, LQD, HYG.
+        """
+        tickers = tickers or ["TLT", "LQD", "HYG"]
+        confidences = confidences or [0.95, 0.99]
+        start = date.today() - timedelta(days=round(365.25 * years))
+
+        closes = {t: self._yahoo.get_history(t, start)["close"] for t in tickers}
+        missing = [t for t, s in closes.items() if s.dropna().empty]
+        if missing:
+            raise ValueError(f"no price history for {', '.join(missing)} (unknown or delisted ticker?)")
+        if len(tickers) == 1:
+            returns = closes[tickers[0]].pct_change().dropna()
+            label = tickers[0]
+        else:
+            returns = portfolio_returns(closes)
+            label = "Equal-weight " + "+".join(tickers)
+
+        result = backtest_var(returns, label, METHODS, confidences, window)
+        chart_conf = 0.99 if 0.99 in confidences else max(confidences)
+        chart_path = chart_var_backtest(result, "historical", chart_conf)
+        return {**result.to_dict(), "summary": result.describe(), "chart": chart_path}
+
     # ──────────────────────────────────────────
     # In-memory portfolio management
     # ──────────────────────────────────────────
@@ -701,6 +737,25 @@ class MacroQuantMCPServer:
                             "required": ["ticker", "quantity", "avg_cost"],
                         },
                     ),
+                    Tool(
+                        name="backtest_var",
+                        description="Backtest historical, parametric and Cornish-Fisher VaR against realised returns (Kupiec, Christoffersen, Basel traffic light)",
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "tickers": {
+                                    "type": "array", "items": {"type": "string"},
+                                    "description": "One ticker, or several for their equal-weight portfolio (default: TLT, LQD, HYG)",
+                                },
+                                "years": {"type": "integer", "default": 10, "description": "Years of daily history to load"},
+                                "confidences": {
+                                    "type": "array", "items": {"type": "number"},
+                                    "description": "VaR confidence levels, each strictly between 0 and 1 (default: 0.95, 0.99)",
+                                },
+                                "window": {"type": "integer", "default": 250, "description": "Rolling estimation window in trading days"},
+                            },
+                        },
+                    ),
                 ]
 
             @server.call_tool()
@@ -716,6 +771,7 @@ class MacroQuantMCPServer:
                     "get_correlation_matrix": lambda a: mq.get_correlation_matrix(**a),
                     "compute_bond_metrics":   lambda a: mq.compute_bond_metrics(**a),
                     "add_etf_position":       lambda a: mq.add_etf_position(**a),
+                    "backtest_var":           lambda a: mq.backtest_var(**a),
                 }
                 fn = dispatch.get(name)
                 if not fn:
