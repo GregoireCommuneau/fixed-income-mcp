@@ -578,6 +578,9 @@ class MacroQuantMCPServer:
         start = date.today() - timedelta(days=round(365.25 * years))
 
         closes = {t: self._yahoo.get_history(t, start)["close"] for t in tickers}
+        missing = [t for t, s in closes.items() if s.dropna().empty]
+        if missing:
+            raise ValueError(f"no price history for {', '.join(missing)} (unknown or delisted ticker?)")
         if len(tickers) == 1:
             returns = closes[tickers[0]].pct_change().dropna()
             label = tickers[0]

@@ -47,8 +47,9 @@ def _xlogy(x: float, y: float) -> float:
 
 
 def _coverage(statistic: float, dof: int) -> CoverageTest:
-    # Rounding can push a statistic that is 0 in theory slightly below 0.
-    statistic = max(statistic, 0.0)
+    # Rounding can push a statistic that is 0 in theory slightly below 0;
+    # adding 0.0 also turns -0.0 into 0.0.
+    statistic = max(statistic, 0.0) + 0.0
     p_value = float(stats.chi2.sf(statistic, dof))
     return CoverageTest(statistic=statistic, p_value=p_value, reject_5pct=p_value < 0.05)
 
@@ -275,6 +276,9 @@ def backtest_var(
     Inputs are validated before any computation, so a bad method name or a
     confidence outside (0, 1) fails fast with a ValueError naming the bad value.
     """
+    # Repeated entries would be backtested twice and overwrite each other in var_series.
+    methods = list(dict.fromkeys(methods))
+    confidences = list(dict.fromkeys(confidences))
     for method in methods:
         _check_method(method)
     for c in confidences:
@@ -321,9 +325,10 @@ def backtest_var(
 def portfolio_returns(closes: dict[str, pd.Series]) -> pd.Series:
     """
     Daily returns of an equal-weight portfolio rebalanced every day: the mean of the
-    tickers' daily returns, on the dates where every ticker has a return (inner join),
-    so a gap in one ticker never shows up as a zero or NaN return.
+    tickers' returns. Prices are aligned first, on the dates where every ticker has a
+    price (inner join), and returns are taken afterwards: a day missing for one ticker
+    then makes every leg span the same two dates, instead of mixing a two-day return
+    with one-day returns, and never shows up as a zero or NaN return.
     """
-    rets = [s.pct_change().rename(t) for t, s in closes.items()]
-    joined = pd.concat(rets, axis=1, join="inner").dropna()
-    return joined.mean(axis=1).rename("equal_weight")
+    prices = pd.concat([s.rename(t) for t, s in closes.items()], axis=1, join="inner").dropna()
+    return prices.pct_change().dropna().mean(axis=1).rename("equal_weight")

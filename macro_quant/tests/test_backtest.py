@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from macro_quant.analytics import charts
 from macro_quant.analytics.backtest import (
     backtest_var,
     basel_zone,
@@ -186,13 +187,15 @@ def test_portfolio_returns_aligns_on_common_dates():
     assert list(r.index) == list(idx[3:]) and not r.isna().any()
 
 
-def test_chart_is_written():
+def test_chart_is_written(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "CHART_DIR", tmp_path)  # keep test output out of the project
     normal, _ = _normal_and_t3()
     path = chart_var_backtest(backtest_var(normal.iloc[:600], "x"), "historical", 0.99)
     assert Path(path).exists()
 
 
-def test_server_backtest_var_with_fake_feed(monkeypatch):
+def test_server_backtest_var_with_fake_feed(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "CHART_DIR", tmp_path)
     srv = MacroQuantMCPServer(fred_api_key="dummy")  # constructor makes no network call
     idx = pd.bdate_range("2015-01-01", periods=800)
     prices = 100 * np.exp(np.cumsum(np.random.default_rng(4).normal(0, 0.01, 800)))
@@ -207,3 +210,40 @@ def test_server_backtest_var_with_fake_feed(monkeypatch):
 def test_too_small_window_raises_naming_the_value(window):
     with pytest.raises(ValueError, match=f"window {window}"):
         backtest_var(pd.Series(np.random.default_rng(5).normal(0, 0.01, 400)), "x", window=window)
+
+
+# ──────────────────────────────────────────────
+# Review follow-ups
+# ──────────────────────────────────────────────
+
+
+def test_zero_statistic_is_positive_zero():
+    s = christoffersen_independence([0, 0, 1, 1, 0, 0, 0, 1, 0, 0])
+    assert s.statistic == 0.0 and math.copysign(1.0, s.statistic) == 1.0
+
+
+def test_duplicate_confidences_and_methods_are_counted_once():
+    r = pd.Series(np.random.default_rng(6).normal(0, 0.01, 400))
+    res = backtest_var(r, "x", methods=("historical", "historical"), confidences=(0.99, 0.99, 0.95))
+    assert [(m.method, m.confidence) for m in res.results] == [("historical", 0.99), ("historical", 0.95)]
+    assert len(res.var_series) == len(res.results)
+
+
+def test_portfolio_return_spans_the_same_days_for_every_ticker():
+    idx = pd.date_range("2024-01-01", periods=5)
+    a = pd.Series([100, 101, 102, 103, 104.0], index=idx)
+    b = pd.Series([50, 51, 53, 54.0], index=idx.delete(2))  # b did not trade on idx[2]
+    r = portfolio_returns({"A": a, "B": b})
+    # On idx[3] both legs must be measured from idx[1], the last day both traded.
+    assert r.loc[idx[3]] == pytest.approx((103 / 101 - 1 + 53 / 51 - 1) / 2)
+
+
+def test_server_names_a_ticker_without_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(charts, "CHART_DIR", tmp_path)
+    srv = MacroQuantMCPServer(fred_api_key="dummy")
+    idx = pd.bdate_range("2015-01-01", periods=800)
+    good = pd.DataFrame({"close": np.linspace(100, 120, 800)}, index=idx)
+    empty = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    monkeypatch.setattr(srv._yahoo, "get_history", lambda t, *a, **k: empty if t == "NOPE" else good)
+    with pytest.raises(ValueError, match="NOPE"):
+        srv.backtest_var(tickers=["TLT", "NOPE"], years=3)
